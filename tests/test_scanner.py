@@ -133,6 +133,11 @@ class ReportTests(unittest.TestCase):
         text = zlib.decompress(data[first:data.index(b"\nendstream", first)])
         self.assertIn(b"(Network Scan Report)", text)
         self.assertIn(b"host-1 \\(lab\\)", text)  # parentheses escaped
+        # Expanded service rows, like the app's list.
+        self.assertIn(b"(SSH)", text)
+        self.assertIn(b"(port 22)", text)
+        self.assertIn(b"(ssh://10.0.0.1)", text)
+        self.assertIn(b"(https://10.0.0.2/)", text)
 
     def test_fit_and_wrap(self):
         import report

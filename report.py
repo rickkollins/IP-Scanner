@@ -81,22 +81,25 @@ class Column:
     share: float  # fraction of the table width
 
 
+# Same columns as the app's list. Each host row is followed by one row per
+# open service, like a fully expanded list in the app.
 COLUMNS = [
-    Column("#", 0.035),
-    Column("Name", 0.19),
-    Column("IP", 0.10),
-    Column("Manufacturer", 0.17),
-    Column("MAC address", 0.125),
-    Column("Open ports", 0.38),
+    Column("#", 0.04),
+    Column("Name", 0.24),
+    Column("IP", 0.12),
+    Column("Manufacturer", 0.20),
+    Column("MAC address", 0.14),
+    Column("Comments", 0.26),
 ]
 
+ALIVE = (0.18, 0.62, 0.27)    # green status dot
+SERVICE = (0.18, 0.45, 0.82)  # blue service dot and text
 
-def ports_text(r: scanner.HostResult) -> str:
-    out = []
-    for p in r.open_ports():
-        name = scanner.service_name(p)
-        out.append(str(p) if name == f"Port {p}" else f"{p} {name}")
-    return ", ".join(out)
+
+def _fill(color) -> str:
+    if isinstance(color, tuple):
+        return "%.3f %.3f %.3f rg" % color
+    return f"{color:.3f} g"
 
 
 class _Page:
@@ -104,13 +107,22 @@ class _Page:
         self.ops: list[str] = []
 
     def text(self, x: float, y: float, s: str, size: float, bold: bool = False,
-             gray: float = 0.0) -> None:
+             gray=0.0) -> None:
         esc = s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
         font = "F2" if bold else "F1"
-        self.ops.append(f"BT {gray:.2f} g /{font} {size:.1f} Tf {x:.2f} {y:.2f} Td ({esc}) Tj ET")
+        self.ops.append(f"BT {_fill(gray)} /{font} {size:.1f} Tf {x:.2f} {y:.2f} Td ({esc}) Tj ET")
 
-    def rect(self, x: float, y: float, w: float, h: float, gray: float) -> None:
-        self.ops.append(f"{gray:.3f} g {x:.2f} {y:.2f} {w:.2f} {h:.2f} re f")
+    def rect(self, x: float, y: float, w: float, h: float, gray) -> None:
+        self.ops.append(f"{_fill(gray)} {x:.2f} {y:.2f} {w:.2f} {h:.2f} re f")
+
+    def dot(self, cx: float, cy: float, r: float, color) -> None:
+        k = 0.5523 * r  # Bezier approximation of a circle
+        self.ops.append(
+            f"{_fill(color)} {cx + r:.2f} {cy:.2f} m "
+            f"{cx + r:.2f} {cy + k:.2f} {cx + k:.2f} {cy + r:.2f} {cx:.2f} {cy + r:.2f} c "
+            f"{cx - k:.2f} {cy + r:.2f} {cx - r:.2f} {cy + k:.2f} {cx - r:.2f} {cy:.2f} c "
+            f"{cx - r:.2f} {cy - k:.2f} {cx - k:.2f} {cy - r:.2f} {cx:.2f} {cy - r:.2f} c "
+            f"{cx + k:.2f} {cy - r:.2f} {cx + r:.2f} {cy - k:.2f} {cx + r:.2f} {cy:.2f} c f")
 
     def line(self, x1: float, y1: float, x2: float, y2: float, gray: float = 0.6,
              width: float = 0.5) -> None:
@@ -135,7 +147,9 @@ def build_pdf(
         x += col.share * table_w
     widths = [c.share * table_w for c in COLUMNS]
     pad = 4.0
-    size, leading = 8.5, 11.0
+    size = 8.5
+    host_h, svc_h = 15.0, 12.5
+    indent = 14.0  # service rows sit under the host name, like the app
     stamp = time.strftime("%Y-%m-%d %H:%M")
 
     pages: list[_Page] = []
@@ -148,10 +162,12 @@ def build_pdf(
             pg.text(MARGIN, y - 14, "Network Scan Report", 16, bold=True)
             y -= 32
             ports_list = list(ports)
+            services = sum(len(r.open_ports()) for r in results)
             details = [
                 f"Scanned: {scanned}" if scanned else "",
                 f"Date: {stamp}",
                 f"Alive hosts: {len(results)}" + (f" of {total} addresses" if total else ""),
+                f"Open services: {services}",
             ]
             pg.text(MARGIN, y, fit("     ".join(d for d in details if d), table_w, 9),
                     9, gray=0.25)
@@ -171,23 +187,48 @@ def build_pdf(
 
     page, y = new_page()
     bottom = MARGIN + 18  # leave room for the footer
+    usable = (page_h - 2 * MARGIN) - 40
 
     for i, r in enumerate(results, 1):
-        cells = [str(i), r.hostname or "-", r.ip, r.vendor or "-", r.mac or "-"]
-        cells = [fit(c, w - 2 * pad, size) for c, w in zip(cells, widths)]
-        port_lines = wrap(ports_text(r) or "-", widths[-1] - 2 * pad, size)
-        row_h = max(1, len(port_lines)) * leading + 5
-        if y - row_h < bottom:
+        open_ports = r.open_ports()
+        block_h = host_h + len(open_ports) * svc_h + (3 if open_ports else 0)
+        # Keep a host and its services together unless they need a whole page.
+        if y - block_h < bottom and (block_h <= usable or y - host_h - svc_h < bottom):
             page, y = new_page()
         if i % 2 == 0:
-            page.rect(MARGIN, y - row_h, table_w, row_h, 0.95)
-        base = y - 3 - size
-        for cx, c in zip(xs, cells):
-            page.text(cx + pad, base, c, size)
-        for n, ln in enumerate(port_lines):
-            page.text(xs[-1] + pad, base - n * leading, ln, size)
-        y -= row_h
-        page.line(MARGIN, y, MARGIN + table_w, y, gray=0.85)
+            page.rect(MARGIN, max(y - block_h, bottom), table_w, min(block_h, y - bottom), 0.955)
+
+        # Host row: # | dot + name | IP | manufacturer | MAC | summary
+        base = y - host_h + 4.5
+        count = len(open_ports)
+        summary = f"{count} open port{'s' if count != 1 else ''}" if count else "No open ports"
+        page.text(xs[0] + pad, base, str(i), size, gray=0.35)
+        page.dot(xs[1] + pad + 3, base + 3, 3, ALIVE)
+        cells = [r.hostname or "-", r.ip, r.vendor or "-", r.mac or "-", summary]
+        offsets = [indent, 0, 0, 0, 0]
+        for k, (cell, off) in enumerate(zip(cells, offsets), 1):
+            page.text(xs[k] + pad + off, base,
+                      fit(cell, widths[k] - 2 * pad - off, size), size,
+                      bold=(k == 1), gray=0.45 if k == 5 else 0.0)
+        y -= host_h
+
+        # Service rows: dot + service | port N | | | link
+        for p in open_ports:
+            if y - svc_h < bottom:
+                page, y = new_page()
+            base = y - svc_h + 3.5
+            page.dot(xs[1] + pad + indent + 2.5, base + 2.8, 2.3, SERVICE)
+            page.text(xs[1] + pad + indent + 10, base,
+                      fit(scanner.service_name(p), widths[1] - 2 * pad - indent - 10, size),
+                      size, gray=SERVICE)
+            page.text(xs[2] + pad, base, f"port {p}", size, gray=SERVICE)
+            url = scanner.service_url(r.ip, p) or ""
+            page.text(xs[5] + pad, base, fit(url, widths[5] - 2 * pad, size), size,
+                      gray=SERVICE)
+            y -= svc_h
+        if open_ports:
+            y -= 3
+        page.line(MARGIN, y, MARGIN + table_w, y, gray=0.8)
 
     if not results:
         page.text(MARGIN + pad, y - 16, "No alive hosts found.", 10, gray=0.4)

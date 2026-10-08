@@ -101,6 +101,23 @@ def service_name(port: int) -> str:
     return SERVICES.get(port, f"Port {port}")
 
 
+# How to open each service (used for double-click in the app and the report).
+HTTPS_PORTS = {443, 5001, 8443}
+URL_SCHEMES = {21: "ftp", 22: "ssh", 445: "smb", 548: "afp", 5900: "vnc"}
+
+
+def service_url(ip: str, port: int) -> str | None:
+    if port in URL_SCHEMES:
+        return f"{URL_SCHEMES[port]}://{ip}"
+    if port in HTTPS_PORTS:
+        return f"https://{ip}" + ("" if port == 443 else f":{port}") + "/"
+    name = service_name(port)
+    if port in (80, 81, 3000, 4007, 4008, 5000, 8000, 8008, 8080, 8081, 8123,
+                8888, 9000, 32400) or name.startswith("HTTP"):
+        return f"http://{ip}" + ("" if port == 80 else f":{port}") + "/"
+    return None
+
+
 # --------------------------------------------------------------------------
 # Targets
 # --------------------------------------------------------------------------

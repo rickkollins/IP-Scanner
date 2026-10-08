@@ -34,23 +34,6 @@ COLUMNS = {  # id: (heading, width, stretch)
     "comments": ("Comments", 260, True),
 }
 
-# How to open a service when its row is double-clicked.
-HTTPS_PORTS = {443, 5001, 8443}
-URL_SCHEMES = {21: "ftp", 22: "ssh", 445: "smb", 548: "afp", 5900: "vnc"}
-
-
-def service_url(ip: str, port: int) -> str | None:
-    if port in URL_SCHEMES:
-        return f"{URL_SCHEMES[port]}://{ip}"
-    if port in HTTPS_PORTS:
-        return f"https://{ip}" + ("" if port == 443 else f":{port}") + "/"
-    name = scanner.service_name(port)
-    if port in (80, 81, 3000, 4007, 4008, 5000, 8000, 8008, 8080, 8081, 8123,
-                8888, 9000, 32400) or name.startswith("HTTP"):
-        return f"http://{ip}" + ("" if port == 80 else f":{port}") + "/"
-    return None
-
-
 def dot(color: str, size: int = 12) -> tk.PhotoImage:
     """A filled circle, used as the status icon."""
     img = tk.PhotoImage(width=size, height=size)
@@ -222,7 +205,7 @@ class App:
         m.delete(0, "end")
         ports = [port] if port else r.open_ports()
         for p in ports:
-            url = service_url(ip, p)
+            url = scanner.service_url(ip, p)
             if url:
                 m.add_command(label=f"Open {scanner.service_name(p)} ({p})",
                               command=lambda u=url: self.open_url(u))
@@ -281,7 +264,7 @@ class App:
                 self.tree.delete(child)
         for i, p in enumerate(sorted(open_ports)):
             iid = f"{r.ip}:{p}"
-            url = service_url(r.ip, p) or ""
+            url = scanner.service_url(r.ip, p) or ""
             vals = [f"{scanner.service_name(p)}", f"port {p}", "", "", url]
             if self.tree.exists(iid):
                 self.tree.item(iid, values=vals)
@@ -349,7 +332,7 @@ class App:
         ip, port = self._row(iid)
         if port is None:
             return None  # default: expand / collapse
-        url = service_url(ip, port)
+        url = scanner.service_url(ip, port)
         if url:
             self.open_url(url)
         return "break"

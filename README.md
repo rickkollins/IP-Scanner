@@ -80,13 +80,14 @@ Drag **IP Scanner** from Applications to the Trash, then run `rm -rf ~/IP-Scanne
 Click **Print…** in the toolbar (or **File → Print…**, ⌘P). The app builds a **landscape table**
 of the results and opens it in Preview. Press **⌘P** in Preview to choose a printer and print.
 
-- The report lists #, Name, IP, Manufacturer, MAC address and Open ports. Each port is listed
-  with its service, e.g. `22 SSH, 443 HTTPS`.
+- The report uses the same columns as the app: #, Name, IP, Manufacturer, MAC address and
+  Comments. Every device is shown **expanded**: below it, each open service gets its own row with
+  the service name, `port N` and its link (e.g. `https://192.168.0.25:5001/`).
 - It prints the list **as shown**: in the current sort order, and only the matching devices if
   you've typed in **Search**.
 - The header shows the range scanned, the date, how many hosts were alive and which ports were
   checked. Long reports continue onto more pages, with the column headings and page numbers
-  repeated on each page.
+  repeated on each page. A device and its services are kept on the same page where possible.
 - Paper size is US Letter, or A4 if your Mac is set to metric units (System Settings → General →
   Language & Region).
 - **File → Save as PDF…** saves the same report to a file instead.
