@@ -8,30 +8,55 @@ The scanning code uses only built-in Python, so there is nothing to `pip install
 
 ## Install on your MacBook
 
-Open **Terminal** and paste:
+**1. Install Python** from [python.org/downloads](https://www.python.org/downloads/): click
+**Download Python** and run the installer. (Homebrew users can run `brew install python-tk`
+instead.) macOS has a built-in Python, but its window toolkit (Tk 8.5) is old and can show a
+blank window on recent macOS.
+
+**2. Open Terminal** (press ⌘ Space, type **Terminal**, press Return), paste this line and press
+Return:
 
 ```bash
-git clone -b claude/vigilant-hypatia-2ajnto https://github.com/rickkollins/IP-Scanner.git ~/IP-Scanner \
-  && ~/IP-Scanner/build_app.sh
+git clone https://github.com/rickkollins/IP-Scanner.git ~/IP-Scanner && ~/IP-Scanner/build_app.sh
 ```
 
-This installs **IP Scanner** into your Applications folder, shows it in Finder and opens it. Start it
-from Finder → Applications, Launchpad or Spotlight, or drag it to your Dock. (If your account
-can't write to `/Applications`, it goes into the Applications folder inside your home folder.) To update later, run
-`cd ~/IP-Scanner && git pull && ./build_app.sh`.
+If macOS asks to install the **command line developer tools**, click **Install**, wait for it to
+finish, then paste the line again.
 
-- If macOS asks to install the **command line developer tools**, click **Install**, then run
-  the command again. That gives you `git` and a basic Python.
-- **Recommended:** install Python from [python.org/downloads](https://www.python.org/downloads/)
-  (or run `brew install python-tk`). Apple's built-in Python uses an old window toolkit
-  (Tk 8.5) that can show a blank window on recent macOS. The app automatically uses the
-  newer Python when it's installed, so you don't need to rebuild it.
-- The first time you scan, macOS may ask to allow access to devices on your **local network**.
-  Click **Allow**. If you missed the prompt, turn it on in
+**3. Done.** Terminal prints `Installed: /Applications/IP Scanner.app`, Finder shows the app,
+and it opens. From now on, start it from Finder → Applications, Launchpad or Spotlight
+(⌘ Space, "IP Scanner"), or drag it to your Dock. If your account can't write to
+`/Applications`, the app goes into the Applications folder inside your home folder instead.
+
+**First scan:**
+
+- macOS may ask to allow IP Scanner to find devices on your **local network**. Click
+  **Allow**, or the scan finds nothing. If you missed the prompt, turn it on in
   **System Settings → Privacy & Security → Local Network**.
-- When **Clear ARP & DNS cache before scan** is on (the default), macOS asks for your
-  administrator password before each scan. Clearing these caches needs admin rights. Untick
-  the box to skip it.
+- With **Clear ARP & DNS cache before scan** ticked (the default), macOS asks for your
+  password before each scan, because clearing those caches needs admin rights. Untick the box
+  to skip this.
+
+### Updating
+
+```bash
+cd ~/IP-Scanner && git pull && ./build_app.sh
+```
+
+### Uninstalling
+
+Drag **IP Scanner** from Applications to the Trash, then run `rm -rf ~/IP-Scanner ~/.ip_scanner.json`.
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Terminal shows `dquote>` | A quote mark wasn't closed. Press **Control + C** and paste the command again. |
+| `destination path ... already exists` | It's already downloaded. Use the **Updating** command above. |
+| The window is blank or doesn't appear | Install Python from python.org (step 1), then open the app again. |
+| "Python 3 with Tkinter was not found" | Install Python from python.org (step 1). |
+| The scan finds nothing, or only your Mac | Allow **Local Network** access (see *First scan* above). |
+| Anything else | Run `"/Applications/IP Scanner.app/Contents/MacOS/IP Scanner"` in Terminal to see the error message. |
 
 ## Using it
 
