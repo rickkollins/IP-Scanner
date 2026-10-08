@@ -88,9 +88,16 @@ A /24 network (254 addresses) usually takes 10–20 seconds.
 
 ## Command line
 
+Scan your network (clears the caches first, so it asks for your password):
+
 ```bash
-python3 scanner.py                         # your network; clears caches first (asks for sudo)
-python3 scanner.py 192.168.1.1-254         # a specific range
+python3 scanner.py
+```
+
+Scan a specific range, or skip the cache clearing and pick ports:
+
+```bash
+python3 scanner.py 192.168.1.1-254
 python3 scanner.py --no-flush -p 22,80,443 --csv out.csv
 ```
 
