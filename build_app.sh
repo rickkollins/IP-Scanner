@@ -42,16 +42,30 @@ PLIST
 
 cat > "$APP/Contents/MacOS/IP Scanner" <<'LAUNCHER'
 #!/bin/bash
-# Find a Python 3 that has Tkinter and start the GUI with it.
+# Start the GUI with the best Python 3 that has Tkinter. Apple's
+# /usr/bin/python3 ships the old Tk 8.5, which can draw blank windows on
+# recent macOS, so any Python with Tk 8.6+ (python.org, Homebrew) wins.
+export TK_SILENCE_DEPRECATION=1
 HERE="$(cd "$(dirname "$0")/../Resources" && pwd)"
-for PY in /opt/homebrew/bin/python3 /usr/local/bin/python3 \
-          /Library/Frameworks/Python.framework/Versions/Current/bin/python3 \
-          /usr/bin/python3; do
-  if [ -x "$PY" ] && "$PY" -c "import tkinter" >/dev/null 2>&1; then
+CANDIDATES=(
+  /Library/Frameworks/Python.framework/Versions/3.*/bin/python3
+  /opt/homebrew/bin/python3 /opt/homebrew/opt/python@3.*/bin/python3
+  /usr/local/bin/python3 /usr/local/opt/python@3.*/bin/python3
+  /usr/bin/python3
+)
+FALLBACK=""
+for PY in "${CANDIDATES[@]}"; do
+  [ -x "$PY" ] || continue
+  TK=$("$PY" -c "import tkinter; print(tkinter.TkVersion)" 2>/dev/null) || continue
+  if [ "${TK%%.*}" -ge 9 ] || [ "$TK" = "8.6" ]; then
     exec "$PY" "$HERE/ip_scanner_gui.py"
   fi
+  [ -z "$FALLBACK" ] && FALLBACK="$PY"
 done
-osascript -e 'display alert "IP Scanner" message "Python 3 with Tkinter was not found.\n\nInstall it with:  xcode-select --install\nor:  brew install python-tk"'
+if [ -n "$FALLBACK" ]; then
+  exec "$FALLBACK" "$HERE/ip_scanner_gui.py"
+fi
+osascript -e 'display alert "IP Scanner" message "Python 3 with Tkinter was not found.\n\nInstall Python from python.org/downloads, then open IP Scanner again."'
 exit 1
 LAUNCHER
 chmod +x "$APP/Contents/MacOS/IP Scanner"

@@ -21,8 +21,11 @@ can't write to `/Applications`, it goes into the Applications folder inside your
 `cd ~/IP-Scanner && git pull && ./build_app.sh`.
 
 - If macOS asks to install the **command line developer tools**, click **Install**, then run
-  the command again. That gives you `git` and Python 3 with Tkinter. If you use Homebrew, run
-  `brew install python-tk` instead.
+  the command again. That gives you `git` and a basic Python.
+- **Recommended:** install Python from [python.org/downloads](https://www.python.org/downloads/)
+  (or run `brew install python-tk`). Apple's built-in Python uses an old window toolkit
+  (Tk 8.5) that can show a blank window on recent macOS. The app automatically uses the
+  newer Python when it's installed, so you don't need to rebuild it.
 - The first time you scan, macOS may ask to allow access to devices on your **local network**.
   Click **Allow**. If you missed the prompt, turn it on in
   **System Settings → Privacy & Security → Local Network**.
