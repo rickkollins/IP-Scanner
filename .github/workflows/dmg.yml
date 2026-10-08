@@ -1,0 +1,63 @@
+# Builds the installable disk image on a GitHub-hosted Mac.
+# - Every push: the DMG is attached to the run as an artifact.
+# - Pushing a tag like v2.1.0: the DMG is also published as a GitHub Release.
+name: Build DMG
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed to publish releases on tags
+
+jobs:
+  dmg:
+    runs-on: macos-14
+    env:
+      PYTHON_VERSION: "3.12.10"
+    steps:
+      - uses: actions/checkout@v4
+
+      # The python.org installer is universal2 (Apple silicon + Intel) and
+      # ships Tk 8.6, so the app works on both kinds of Mac.
+      - name: Install python.org Python
+        run: |
+          curl -fsSLo python.pkg "https://www.python.org/ftp/python/${PYTHON_VERSION}/python-${PYTHON_VERSION}-macos11.pkg"
+          sudo installer -pkg python.pkg -target /
+          echo "PYTHON=/Library/Frameworks/Python.framework/Versions/${PYTHON_VERSION%.*}/bin/python3" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        run: $PYTHON -m unittest discover -s tests -v
+
+      - name: Build DMG
+        env:
+          TARGET_ARCH: universal2
+        run: ./make_dmg.sh
+
+      - name: Check the app
+        run: |
+          APP="dist/IP Scanner.app"
+          lipo -archs "$APP/Contents/MacOS/IP Scanner"
+          codesign --verify --deep --strict "$APP"
+          test -f "$APP/Contents/Resources/data/oui.txt.gz" \
+            || test -f "$APP/Contents/Frameworks/data/oui.txt.gz"
+          ICON=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$APP/Contents/Info.plist")
+          test -f "$APP/Contents/Resources/${ICON%.icns}.icns"
+          hdiutil verify dist/*.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IP-Scanner-dmg
+          path: dist/*.dmg
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.dmg \
+            --title "IP Scanner $GITHUB_REF_NAME" \
+            --notes "Download the .dmg below, open it and drag IP Scanner to Applications. See the README for first-launch steps."

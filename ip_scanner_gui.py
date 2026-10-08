@@ -13,6 +13,7 @@ import os
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
@@ -21,6 +22,7 @@ from tkinter import filedialog, messagebox, ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scanner  # noqa: E402
+import report  # noqa: E402
 
 SETTINGS = os.path.expanduser("~/.ip_scanner.json")
 
@@ -31,23 +33,6 @@ COLUMNS = {  # id: (heading, width, stretch)
     "mac": ("MAC address", 140, False),
     "comments": ("Comments", 260, True),
 }
-
-# How to open a service when its row is double-clicked.
-HTTPS_PORTS = {443, 5001, 8443}
-URL_SCHEMES = {21: "ftp", 22: "ssh", 445: "smb", 548: "afp", 5900: "vnc"}
-
-
-def service_url(ip: str, port: int) -> str | None:
-    if port in URL_SCHEMES:
-        return f"{URL_SCHEMES[port]}://{ip}"
-    if port in HTTPS_PORTS:
-        return f"https://{ip}" + ("" if port == 443 else f":{port}") + "/"
-    name = scanner.service_name(port)
-    if port in (80, 81, 3000, 4007, 4008, 5000, 8000, 8008, 8080, 8081, 8123,
-                8888, 9000, 32400) or name.startswith("HTTP"):
-        return f"http://{ip}" + ("" if port == 80 else f":{port}") + "/"
-    return None
-
 
 def dot(color: str, size: int = 12) -> tk.PhotoImage:
     """A filled circle, used as the status icon."""
@@ -95,6 +80,9 @@ class App:
         self.results: dict[str, scanner.HostResult] = {}
         self.sort_col, self.sort_desc = "ip", False
         self.total = 0
+        self.expanded = False  # Expand All is on: new hosts appear expanded too
+        self.scanned_spec = ""
+        self.scanned_ports: list[int] = []
         self.started = 0.0
         self.dirty = False
         self.note = ""
@@ -115,13 +103,17 @@ class App:
         self.scan_btn = ttk.Button(bar, text="▶  Scan", width=10, command=self.toggle_scan)
         self.scan_btn.pack(side="left")
         self.range_var = tk.StringVar(value=self.detected_range())
-        rng = ttk.Entry(bar, textvariable=self.range_var, width=42)
+        rng = ttk.Entry(bar, textvariable=self.range_var, width=32)
         rng.pack(side="left", padx=(10, 4))
         rng.bind("<Return>", lambda e: self.toggle_scan())
         ttk.Button(bar, text="My network", command=self.detect).pack(side="left")
+        ttk.Button(bar, text="Print…", command=self.print_report).pack(side="left", padx=(4, 0))
+        self.expand_btn = ttk.Button(bar, text="Expand All", width=12,
+                                     command=lambda: self.expand_all(not self.expanded))
+        self.expand_btn.pack(side="left", padx=(4, 0))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self.refresh_view())
-        ttk.Entry(bar, textvariable=self.search_var, width=24).pack(side="right")
+        ttk.Entry(bar, textvariable=self.search_var, width=18).pack(side="right")
         ttk.Label(bar, text="Search:").pack(side="right", padx=(0, 4))
 
         hint = ttk.Frame(root, padding=(10, 0, 10, 4))
@@ -189,6 +181,9 @@ class App:
         file = tk.Menu(bar, tearoff=False)
         file.add_command(label="Scan", accelerator=f"{acc}+R", command=self.toggle_scan)
         file.add_command(label="Export CSV…", accelerator=f"{acc}+E", command=self.export)
+        file.add_command(label="Save as PDF…", command=self.save_pdf)
+        file.add_separator()
+        file.add_command(label="Print…", accelerator=f"{acc}+P", command=self.print_report)
         if not scanner.IS_MAC:
             file.add_separator()
             file.add_command(label="Quit", command=self.quit)
@@ -200,6 +195,7 @@ class App:
         self.root.configure(menu=bar)
         self.root.bind_all(f"<{mod}-r>", lambda e: self.toggle_scan())
         self.root.bind_all(f"<{mod}-e>", lambda e: self.export())
+        self.root.bind_all(f"<{mod}-p>", lambda e: self.print_report())
 
     def on_right_click(self, event) -> None:
         iid = self.tree.identify_row(event.y)
@@ -213,7 +209,7 @@ class App:
         m.delete(0, "end")
         ports = [port] if port else r.open_ports()
         for p in ports:
-            url = service_url(ip, p)
+            url = scanner.service_url(ip, p)
             if url:
                 m.add_command(label=f"Open {scanner.service_name(p)} ({p})",
                               command=lambda u=url: self.open_url(u))
@@ -264,7 +260,8 @@ class App:
         if self.tree.exists(r.ip):
             self.tree.item(r.ip, values=values)
         else:
-            self.tree.insert("", "end", iid=r.ip, image=self.icon_alive, values=values)
+            self.tree.insert("", "end", iid=r.ip, image=self.icon_alive, values=values,
+                             open=self.expanded)
             self.dirty = True
         open_ports = set(r.open_ports())
         for child in self.tree.get_children(r.ip):
@@ -272,7 +269,7 @@ class App:
                 self.tree.delete(child)
         for i, p in enumerate(sorted(open_ports)):
             iid = f"{r.ip}:{p}"
-            url = service_url(r.ip, p) or ""
+            url = scanner.service_url(r.ip, p) or ""
             vals = [f"{scanner.service_name(p)}", f"port {p}", "", "", url]
             if self.tree.exists(iid):
                 self.tree.item(iid, values=vals)
@@ -329,8 +326,11 @@ class App:
             self.tree.heading(col, text=title + arrow)
 
     def expand_all(self, open_: bool) -> None:
-        for iid in self.tree.get_children():
-            self.tree.item(iid, open=open_)
+        self.expanded = open_
+        for iid in self.results:
+            if self.tree.exists(iid):
+                self.tree.item(iid, open=open_)
+        self.expand_btn.configure(text="Collapse All" if open_ else "Expand All")
 
     def on_double_click(self, event) -> str | None:
         iid = self.tree.focus() if event.type == tk.EventType.KeyPress \
@@ -340,7 +340,7 @@ class App:
         ip, port = self._row(iid)
         if port is None:
             return None  # default: expand / collapse
-        url = service_url(ip, port)
+        url = scanner.service_url(ip, port)
         if url:
             self.open_url(url)
         return "break"
@@ -403,6 +403,8 @@ class App:
         self.results.clear()
         self.tree.delete(*self.tree.get_children())
         self.total = len(targets)
+        self.scanned_spec = self.range_var.get().strip()
+        self.scanned_ports = ports
         self._start(targets, ports, flush=self.flush_var.get())
 
     def rescan(self, ip: str) -> None:
@@ -494,6 +496,43 @@ class App:
             scanner.write_csv(path, ordered)
             self.status.set(f"Saved {path}")
 
+    def _write_report(self, path: str) -> bool:
+        """Landscape PDF of the list as shown (current sort and search)."""
+        if not self.results:
+            messagebox.showinfo("IP Scanner", "Nothing to print yet. Run a scan first.")
+            return False
+        shown = [self.results[iid] for iid in self.tree.get_children()]
+        scanned = self.scanned_spec
+        if self.search_var.get().strip():
+            scanned += f'  (search: "{self.search_var.get().strip()}")'
+        report.build_pdf(shown, path, scanned=scanned, total=self.total,
+                         ports=self.scanned_ports, paper=report.default_paper())
+        return True
+
+    def print_report(self) -> None:
+        """Open the report in Preview, ready to print with Cmd+P."""
+        folder = os.path.join(tempfile.gettempdir(), "IP Scanner")
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, time.strftime("IP Scan %Y-%m-%d %H.%M.%S.pdf"))
+        if not self._write_report(path):
+            return
+        if scanner.IS_MAC:
+            subprocess.Popen(["open", "-a", "Preview", path])
+            self.status.set("Report opened in Preview. Press ⌘P there to print.")
+        else:
+            webbrowser.open("file://" + path)
+            self.status.set(f"Report opened: {path}")
+
+    def save_pdf(self) -> None:
+        if not self.results:
+            self._write_report("")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".pdf", initialfile=time.strftime("IP Scan %Y-%m-%d.pdf"),
+            filetypes=[("PDF", "*.pdf")])
+        if path and self._write_report(path):
+            self.status.set(f"Saved {path}")
+
     def quit(self) -> None:
         if self.scanner:
             self.scanner.stop()
@@ -506,6 +545,12 @@ def main() -> None:
         ttk.Style().theme_use("aqua")
     except tk.TclError:
         ttk.Style().theme_use("clam")
+    try:
+        # Dock and window icon (the .app bundle also sets it for Finder).
+        icon = tk.PhotoImage(file=os.path.join(scanner.HERE, "data", "icon.png"))
+        root.iconphoto(True, icon)
+    except tk.TclError:
+        pass
     App(root)
     root.lift()
     root.attributes("-topmost", True)

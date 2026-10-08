@@ -28,6 +28,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable
 
+__version__ = "2.1.0"
+
 # Port -> service name. These are all checked by default.
 SERVICES: dict[int, str] = {
     21: "FTP",
@@ -78,7 +80,8 @@ DEFAULT_PORTS = tuple(SERVICES)
 MAX_HOSTS = 65536
 
 IS_MAC = sys.platform == "darwin"
-HERE = os.path.dirname(os.path.abspath(__file__))
+# Inside the bundled app (PyInstaller) data files live in sys._MEIPASS.
+HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
 
 @dataclass
@@ -99,6 +102,23 @@ class HostResult:
 
 def service_name(port: int) -> str:
     return SERVICES.get(port, f"Port {port}")
+
+
+# How to open each service (used for double-click in the app and the report).
+HTTPS_PORTS = {443, 5001, 8443}
+URL_SCHEMES = {21: "ftp", 22: "ssh", 445: "smb", 548: "afp", 5900: "vnc"}
+
+
+def service_url(ip: str, port: int) -> str | None:
+    if port in URL_SCHEMES:
+        return f"{URL_SCHEMES[port]}://{ip}"
+    if port in HTTPS_PORTS:
+        return f"https://{ip}" + ("" if port == 443 else f":{port}") + "/"
+    name = service_name(port)
+    if port in (80, 81, 3000, 4007, 4008, 5000, 8000, 8008, 8080, 8081, 8123,
+                8888, 9000, 32400) or name.startswith("HTTP"):
+        return f"http://{ip}" + ("" if port == 80 else f":{port}") + "/"
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -554,6 +574,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-flush", action="store_true",
                     help="don't wipe the ARP and DNS caches before scanning")
     ap.add_argument("--csv", help="also write results to this CSV file")
+    ap.add_argument("--pdf", help="also write a printable landscape PDF report")
+    ap.add_argument("--paper", choices=("letter", "a4"),
+                    help="PDF paper size (default: from your Mac's region settings)")
     args = ap.parse_args(argv)
 
     try:
@@ -595,6 +618,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.csv:
         write_csv(args.csv, results)
         print(f"Saved {args.csv}", file=sys.stderr)
+    if args.pdf:
+        import report
+        report.build_pdf(results, args.pdf, scanned=spec, total=len(targets),
+                         ports=ports, paper=args.paper or report.default_paper())
+        print(f"Saved {args.pdf}", file=sys.stderr)
     return 0
 
 
