@@ -80,6 +80,7 @@ class App:
         self.results: dict[str, scanner.HostResult] = {}
         self.sort_col, self.sort_desc = "ip", False
         self.total = 0
+        self.expanded = False  # Expand All is on: new hosts appear expanded too
         self.scanned_spec = ""
         self.scanned_ports: list[int] = []
         self.started = 0.0
@@ -102,14 +103,17 @@ class App:
         self.scan_btn = ttk.Button(bar, text="▶  Scan", width=10, command=self.toggle_scan)
         self.scan_btn.pack(side="left")
         self.range_var = tk.StringVar(value=self.detected_range())
-        rng = ttk.Entry(bar, textvariable=self.range_var, width=42)
+        rng = ttk.Entry(bar, textvariable=self.range_var, width=32)
         rng.pack(side="left", padx=(10, 4))
         rng.bind("<Return>", lambda e: self.toggle_scan())
         ttk.Button(bar, text="My network", command=self.detect).pack(side="left")
         ttk.Button(bar, text="Print…", command=self.print_report).pack(side="left", padx=(4, 0))
+        self.expand_btn = ttk.Button(bar, text="Expand All", width=12,
+                                     command=lambda: self.expand_all(not self.expanded))
+        self.expand_btn.pack(side="left", padx=(4, 0))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self.refresh_view())
-        ttk.Entry(bar, textvariable=self.search_var, width=24).pack(side="right")
+        ttk.Entry(bar, textvariable=self.search_var, width=18).pack(side="right")
         ttk.Label(bar, text="Search:").pack(side="right", padx=(0, 4))
 
         hint = ttk.Frame(root, padding=(10, 0, 10, 4))
@@ -256,7 +260,8 @@ class App:
         if self.tree.exists(r.ip):
             self.tree.item(r.ip, values=values)
         else:
-            self.tree.insert("", "end", iid=r.ip, image=self.icon_alive, values=values)
+            self.tree.insert("", "end", iid=r.ip, image=self.icon_alive, values=values,
+                             open=self.expanded)
             self.dirty = True
         open_ports = set(r.open_ports())
         for child in self.tree.get_children(r.ip):
@@ -321,8 +326,11 @@ class App:
             self.tree.heading(col, text=title + arrow)
 
     def expand_all(self, open_: bool) -> None:
-        for iid in self.tree.get_children():
-            self.tree.item(iid, open=open_)
+        self.expanded = open_
+        for iid in self.results:
+            if self.tree.exists(iid):
+                self.tree.item(iid, open=open_)
+        self.expand_btn.configure(text="Collapse All" if open_ else "Expand All")
 
     def on_double_click(self, event) -> str | None:
         iid = self.tree.focus() if event.type == tk.EventType.KeyPress \

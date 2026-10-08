@@ -68,7 +68,9 @@ Drag **IP Scanner** from Applications to the Trash, then run `rm -rf ~/IP-Scanne
    *N alive, M dead*.
 3. Click a column heading to sort, and use **Search** to filter by name, IP, maker, MAC or
    service.
-4. Click the ▸ arrow on a device to see its open services. **Double-click** a service to open it:
+4. Click the ▸ arrow on a device to see its open services, or click **Expand All** in the toolbar
+   to open every device at once (click again for **Collapse All**). While Expand All is on,
+   newly found devices appear expanded too. **Double-click** a service to open it:
    web ports open in your browser, SSH opens Terminal, SMB/AFP open Finder, and VNC opens
    Screen Sharing.
 5. **Right-click** a device to open a service, copy its IP, name or MAC, or rescan just that
