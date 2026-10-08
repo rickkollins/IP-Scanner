@@ -1,6 +1,8 @@
 # Builds the installable disk image on a GitHub-hosted Mac.
 # - Every push: the DMG is attached to the run as an artifact.
-# - Pushing a tag like v2.1.0: the DMG is also published as a GitHub Release.
+# - Pushes to main: if there is no release yet for the version in
+#   scanner.py (__version__), one is created (tag v<version>) with the DMG.
+#   To publish a new release, bump __version__ and merge to main.
 name: Build DMG
 
 on:
@@ -54,10 +56,16 @@ jobs:
           if-no-files-found: error
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.dmg \
-            --title "IP Scanner $GITHUB_REF_NAME" \
-            --notes "Download the .dmg below, open it and drag IP Scanner to Applications. See the README for first-launch steps."
+          VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' scanner.py)
+          TAG="v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to publish."
+            exit 0
+          fi
+          gh release create "$TAG" dist/*.dmg --target "$GITHUB_SHA" \
+            --title "IP Scanner $VERSION" \
+            --notes "Download **IP-Scanner-$VERSION.dmg** below, open it and drag IP Scanner to Applications. The first time, macOS blocks the app because it isn't notarized: open System Settings → Privacy & Security and click **Open Anyway**. See the README for details."

@@ -34,8 +34,8 @@ This creates `dist/IP-Scanner-<version>.dmg` and shows it in Finder. A DMG you b
 opens without the "cannot verify" step. The app icon comes from `packaging/icon.icns`; to change
 it, edit `packaging/make_icon.py` and run it (needs `pip install pillow`). GitHub also builds the DMG automatically on every push:
 open the repo's **Actions** tab, click the latest **Build DMG** run, and download
-**IP-Scanner-dmg** under *Artifacts*. Pushing a version tag (e.g. `v2.1.0`) publishes it as a
-release.
+**IP-Scanner-dmg** under *Artifacts*. When `main` gets a new version number (`__version__` in
+`scanner.py`), GitHub publishes the DMG as a release automatically.
 
 ## Install from source (Terminal)
 
