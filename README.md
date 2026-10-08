@@ -75,6 +75,22 @@ Drag **IP Scanner** from Applications to the Trash, then run `rm -rf ~/IP-Scanne
    device.
 6. **File → Export CSV…** (⌘E) saves the list.
 
+### Printing
+
+Click **Print…** in the toolbar (or **File → Print…**, ⌘P). The app builds a **landscape table**
+of the results and opens it in Preview. Press **⌘P** in Preview to choose a printer and print.
+
+- The report lists #, Name, IP, Manufacturer, MAC address and Open ports. Each port is listed
+  with its service, e.g. `22 SSH, 443 HTTPS`.
+- It prints the list **as shown**: in the current sort order, and only the matching devices if
+  you've typed in **Search**.
+- The header shows the range scanned, the date, how many hosts were alive and which ports were
+  checked. Long reports continue onto more pages, with the column headings and page numbers
+  repeated on each page.
+- Paper size is US Letter, or A4 if your Mac is set to metric units (System Settings → General →
+  Language & Region).
+- **File → Save as PDF…** saves the same report to a file instead.
+
 ## Ports checked
 
 All of these are checked by default. You can edit the **Ports** box, which accepts ranges like
@@ -127,6 +143,12 @@ Scan a specific range, or skip the cache clearing and pick ports:
 ```bash
 python3 scanner.py 192.168.1.1-254
 python3 scanner.py --no-flush -p 22,80,443 --csv out.csv
+```
+
+Save a printable landscape PDF of the results (add `--paper a4` for A4):
+
+```bash
+python3 scanner.py --pdf report.pdf
 ```
 
 ## Tests

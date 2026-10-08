@@ -13,6 +13,7 @@ import os
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
@@ -21,6 +22,7 @@ from tkinter import filedialog, messagebox, ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scanner  # noqa: E402
+import report  # noqa: E402
 
 SETTINGS = os.path.expanduser("~/.ip_scanner.json")
 
@@ -95,6 +97,8 @@ class App:
         self.results: dict[str, scanner.HostResult] = {}
         self.sort_col, self.sort_desc = "ip", False
         self.total = 0
+        self.scanned_spec = ""
+        self.scanned_ports: list[int] = []
         self.started = 0.0
         self.dirty = False
         self.note = ""
@@ -119,6 +123,7 @@ class App:
         rng.pack(side="left", padx=(10, 4))
         rng.bind("<Return>", lambda e: self.toggle_scan())
         ttk.Button(bar, text="My network", command=self.detect).pack(side="left")
+        ttk.Button(bar, text="Print…", command=self.print_report).pack(side="left", padx=(4, 0))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self.refresh_view())
         ttk.Entry(bar, textvariable=self.search_var, width=24).pack(side="right")
@@ -189,6 +194,9 @@ class App:
         file = tk.Menu(bar, tearoff=False)
         file.add_command(label="Scan", accelerator=f"{acc}+R", command=self.toggle_scan)
         file.add_command(label="Export CSV…", accelerator=f"{acc}+E", command=self.export)
+        file.add_command(label="Save as PDF…", command=self.save_pdf)
+        file.add_separator()
+        file.add_command(label="Print…", accelerator=f"{acc}+P", command=self.print_report)
         if not scanner.IS_MAC:
             file.add_separator()
             file.add_command(label="Quit", command=self.quit)
@@ -200,6 +208,7 @@ class App:
         self.root.configure(menu=bar)
         self.root.bind_all(f"<{mod}-r>", lambda e: self.toggle_scan())
         self.root.bind_all(f"<{mod}-e>", lambda e: self.export())
+        self.root.bind_all(f"<{mod}-p>", lambda e: self.print_report())
 
     def on_right_click(self, event) -> None:
         iid = self.tree.identify_row(event.y)
@@ -403,6 +412,8 @@ class App:
         self.results.clear()
         self.tree.delete(*self.tree.get_children())
         self.total = len(targets)
+        self.scanned_spec = self.range_var.get().strip()
+        self.scanned_ports = ports
         self._start(targets, ports, flush=self.flush_var.get())
 
     def rescan(self, ip: str) -> None:
@@ -492,6 +503,43 @@ class App:
         if path:
             ordered = sorted(self.results.values(), key=lambda r: r.sort_key)
             scanner.write_csv(path, ordered)
+            self.status.set(f"Saved {path}")
+
+    def _write_report(self, path: str) -> bool:
+        """Landscape PDF of the list as shown (current sort and search)."""
+        if not self.results:
+            messagebox.showinfo("IP Scanner", "Nothing to print yet. Run a scan first.")
+            return False
+        shown = [self.results[iid] for iid in self.tree.get_children()]
+        scanned = self.scanned_spec
+        if self.search_var.get().strip():
+            scanned += f'  (search: "{self.search_var.get().strip()}")'
+        report.build_pdf(shown, path, scanned=scanned, total=self.total,
+                         ports=self.scanned_ports, paper=report.default_paper())
+        return True
+
+    def print_report(self) -> None:
+        """Open the report in Preview, ready to print with Cmd+P."""
+        folder = os.path.join(tempfile.gettempdir(), "IP Scanner")
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, time.strftime("IP Scan %Y-%m-%d %H.%M.%S.pdf"))
+        if not self._write_report(path):
+            return
+        if scanner.IS_MAC:
+            subprocess.Popen(["open", "-a", "Preview", path])
+            self.status.set("Report opened in Preview. Press ⌘P there to print.")
+        else:
+            webbrowser.open("file://" + path)
+            self.status.set(f"Report opened: {path}")
+
+    def save_pdf(self) -> None:
+        if not self.results:
+            self._write_report("")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".pdf", initialfile=time.strftime("IP Scan %Y-%m-%d.pdf"),
+            filetypes=[("PDF", "*.pdf")])
+        if path and self._write_report(path):
             self.status.set(f"Saved {path}")
 
     def quit(self) -> None:

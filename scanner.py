@@ -554,6 +554,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-flush", action="store_true",
                     help="don't wipe the ARP and DNS caches before scanning")
     ap.add_argument("--csv", help="also write results to this CSV file")
+    ap.add_argument("--pdf", help="also write a printable landscape PDF report")
+    ap.add_argument("--paper", choices=("letter", "a4"),
+                    help="PDF paper size (default: from your Mac's region settings)")
     args = ap.parse_args(argv)
 
     try:
@@ -595,6 +598,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.csv:
         write_csv(args.csv, results)
         print(f"Saved {args.csv}", file=sys.stderr)
+    if args.pdf:
+        import report
+        report.build_pdf(results, args.pdf, scanned=spec, total=len(targets),
+                         ports=ports, paper=args.paper or report.default_paper())
+        print(f"Saved {args.pdf}", file=sys.stderr)
     return 0
 
 

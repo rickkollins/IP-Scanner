@@ -109,5 +109,40 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(found[-1].ports, {1: False, port: True})
 
 
+class ReportTests(unittest.TestCase):
+    def test_pdf_is_landscape_and_paginates(self):
+        import tempfile
+        import zlib
+        import report
+        hosts = []
+        for i in range(1, 120):
+            r = scanner.HostResult(ip=f"10.0.0.{i}", hostname=f"host-{i} (lab)",
+                                   mac="b8:27:eb:00:00:01", vendor="Raspberry Pi Foundation")
+            r.ports = {22: True, 80: True, 443: i % 2 == 0}
+            hosts.append(r)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "r.pdf")
+            pages = report.build_pdf(hosts, path, "10.0.0.1-254", 254, [22, 80, 443])
+            data = open(path, "rb").read()
+        self.assertGreater(pages, 1)
+        self.assertTrue(data.startswith(b"%PDF-1.4"))
+        self.assertTrue(data.rstrip().endswith(b"%%EOF"))
+        self.assertIn(b"/MediaBox [0 0 792.00 612.00]", data)  # wider than tall
+        self.assertIn(b"/Count %d" % pages, data)
+        first = data.index(b"stream\n") + 7
+        text = zlib.decompress(data[first:data.index(b"\nendstream", first)])
+        self.assertIn(b"(Network Scan Report)", text)
+        self.assertIn(b"host-1 \\(lab\\)", text)  # parentheses escaped
+
+    def test_fit_and_wrap(self):
+        import report
+        self.assertEqual(report.fit("short", 100, 9), "short")
+        long = report.fit("x" * 200, 50, 9)
+        self.assertTrue(long.endswith("..."))
+        self.assertLessEqual(report.text_width(long, 9), 50)
+        lines = report.wrap("22 SSH, 80 HTTP, 443 HTTPS, 8123 Home Assistant", 60, 9)
+        self.assertGreater(len(lines), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -17,7 +17,7 @@ APP="$DEST/IP Scanner.app"
 mkdir -p "$DEST"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$SRC/scanner.py" "$SRC/ip_scanner_gui.py" "$APP/Contents/Resources/"
+cp "$SRC/scanner.py" "$SRC/ip_scanner_gui.py" "$SRC/report.py" "$APP/Contents/Resources/"
 cp -R "$SRC/data" "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
