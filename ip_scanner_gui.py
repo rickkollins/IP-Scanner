@@ -545,6 +545,12 @@ def main() -> None:
         ttk.Style().theme_use("aqua")
     except tk.TclError:
         ttk.Style().theme_use("clam")
+    try:
+        # Dock and window icon (the .app bundle also sets it for Finder).
+        icon = tk.PhotoImage(file=os.path.join(scanner.HERE, "data", "icon.png"))
+        root.iconphoto(True, icon)
+    except tk.TclError:
+        pass
     App(root)
     root.lift()
     root.attributes("-topmost", True)

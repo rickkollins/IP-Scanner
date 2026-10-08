@@ -43,6 +43,8 @@ jobs:
           codesign --verify --deep --strict "$APP"
           test -f "$APP/Contents/Resources/data/oui.txt.gz" \
             || test -f "$APP/Contents/Frameworks/data/oui.txt.gz"
+          ICON=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$APP/Contents/Info.plist")
+          test -f "$APP/Contents/Resources/${ICON%.icns}.icns"
           hdiutil verify dist/*.dmg
 
       - uses: actions/upload-artifact@v4

@@ -13,7 +13,8 @@ VERSION = re.search(r'__version__ = "([^"]+)"',
 a = Analysis(
     [os.path.join(ROOT, "ip_scanner_gui.py")],
     pathex=[ROOT],
-    datas=[(os.path.join(ROOT, "data", "oui.txt.gz"), "data")],
+    datas=[(os.path.join(ROOT, "data", "oui.txt.gz"), "data"),
+           (os.path.join(ROOT, "data", "icon.png"), "data")],
     hiddenimports=["scanner", "report"],
     excludes=["unittest", "pydoc", "test"],
 )
@@ -32,6 +33,7 @@ coll = COLLECT(exe, a.binaries, a.datas, name="IP Scanner")
 app = BUNDLE(
     coll,
     name="IP Scanner.app",
+    icon=os.path.join(SPECPATH, "icon.icns"),
     bundle_identifier="com.rickkollins.ipscanner",
     version=VERSION,
     info_plist={

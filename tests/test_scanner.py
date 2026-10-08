@@ -123,7 +123,8 @@ class ReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "r.pdf")
             pages = report.build_pdf(hosts, path, "10.0.0.1-254", 254, [22, 80, 443])
-            data = open(path, "rb").read()
+            with open(path, "rb") as f:
+                data = f.read()
         self.assertGreater(pages, 1)
         self.assertTrue(data.startswith(b"%PDF-1.4"))
         self.assertTrue(data.rstrip().endswith(b"%%EOF"))
