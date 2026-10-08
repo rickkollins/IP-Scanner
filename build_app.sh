@@ -11,6 +11,7 @@ mkdir -p "$DEST"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$SRC/scanner.py" "$SRC/ip_scanner_gui.py" "$APP/Contents/Resources/"
+cp -R "$SRC/data" "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -20,8 +21,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>IP Scanner</string>
   <key>CFBundleDisplayName</key><string>IP Scanner</string>
   <key>CFBundleIdentifier</key><string>com.rickkollins.ipscanner</string>
-  <key>CFBundleVersion</key><string>1.0</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>2.0</string>
+  <key>CFBundleShortVersionString</key><string>2.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>IP Scanner</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>

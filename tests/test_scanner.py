@@ -44,11 +44,43 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(table["192.168.1.1"], "00:1a:2b:3c:4d:5e")
         self.assertNotIn("192.168.1.40", table)
 
-    def test_parse_networks_limit(self):
+    def test_parse_targets(self):
+        self.assertEqual(scanner.parse_targets("192.168.1.1-3"),
+                         ["192.168.1.1", "192.168.1.2", "192.168.1.3"])
+        self.assertEqual(scanner.parse_targets("10.0.0.0/30, 10.0.0.2 10.0.0.9-10.0.0.10"),
+                         ["10.0.0.1", "10.0.0.2", "10.0.0.9", "10.0.0.10"])
+        self.assertEqual(len(scanner.parse_targets("192.168.0.0/16")), 65534)
         with self.assertRaises(ValueError):
-            scanner.parse_networks(["10.0.0.0/8"])
-        self.assertEqual(scanner.parse_networks(["10.0.0.5/24"]),
-                         [ipaddress.IPv4Network("10.0.0.0/24")])
+            scanner.parse_targets("10.0.0.0/8")
+        with self.assertRaises(ValueError):
+            scanner.parse_targets("10.0.0.9-3")
+
+    def test_network_to_range(self):
+        self.assertEqual(scanner.network_to_range(ipaddress.IPv4Network("192.168.1.0/24")),
+                         "192.168.1.1-254")
+        self.assertEqual(scanner.network_to_range(ipaddress.IPv4Network("10.0.0.0/22")),
+                         "10.0.0.0/22")
+
+    def test_parse_ports(self):
+        self.assertEqual(scanner.parse_ports("443, 22,8000-8002"), [22, 443, 8000, 8001, 8002])
+        with self.assertRaises(ValueError):
+            scanner.parse_ports("70000")
+
+    def test_default_ports_include_requested(self):
+        for p in (22, 80, 81, 443, 4007, 4008, 8000, 8081, 8123):
+            self.assertIn(p, scanner.DEFAULT_PORTS)
+
+    def test_vendor_lookup(self):
+        self.assertEqual(scanner.vendor_for_mac("b8:27:eb:00:11:22"), "Raspberry Pi Foundation")
+        self.assertEqual(scanner.vendor_for_mac("f0:d1:a9:00:11:22"), "Apple, Inc.")
+        self.assertEqual(scanner.vendor_for_mac("da:a1:19:00:11:22"), "Private (randomized MAC)")
+        self.assertEqual(scanner.vendor_for_mac(""), "")
+
+    def test_flush_commands_on_mac(self):
+        with mock.patch.object(scanner, "IS_MAC", True):
+            cmds = scanner.flush_commands()
+        self.assertIn(["arp", "-a", "-d"], cmds)
+        self.assertIn(["dscacheutil", "-flushcache"], cmds)
 
 
 class ScanTests(unittest.TestCase):
@@ -63,7 +95,7 @@ class ScanTests(unittest.TestCase):
                  mock.patch.object(scanner, "arp_table", return_value={}), \
                  mock.patch.object(scanner, "resolve_hostname", return_value="localhost"):
                 results = scanner.Scanner(
-                    [ipaddress.IPv4Network("127.0.0.0/30")], ports=[port, 1],
+                    scanner.parse_targets("127.0.0.0/30"), ports=[port, 1],
                     timeout=0.5, on_host=found.append,
                 ).run()
         finally:
@@ -72,6 +104,9 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(results[0].ports, {1: False, port: True})
         self.assertEqual(results[0].hostname, "localhost")
         self.assertTrue(found)
+        # Reported results are copies, safe to read from another thread.
+        self.assertIsNot(found[-1], results[0])
+        self.assertEqual(found[-1].ports, {1: False, port: True})
 
 
 if __name__ == "__main__":

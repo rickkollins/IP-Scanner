@@ -1,67 +1,96 @@
 # IP Scanner
 
-A small macOS app that scans your whole local network for alive IPv4 hosts. It shows each host's
-hostname and MAC address, and checks these TCP ports:
+A macOS network scanner styled after Advanced IP Scanner. It finds every alive IPv4 device on
+your network and lists each one's **name**, **IP**, **manufacturer**, **MAC address** and
+**open services**. Expand a device to see its services, and double-click one to open it.
 
-| Port | Typical use |
-|------|-------------|
-| 80   | HTTP |
-| 8000 | Dev / web servers |
-| 8081 | Alt HTTP, proxies, admin panels |
-| 8123 | Home Assistant |
-
-It uses only the Python standard library, so there is nothing to `pip install`.
+The scanning code uses only built-in Python, so there is nothing to `pip install`.
 
 ## Install on your MacBook
 
+Open **Terminal** and paste:
+
 ```bash
-git clone https://github.com/rickkollins/IP-Scanner.git
-cd IP-Scanner
-./build_app.sh            # creates ~/Applications/IP Scanner.app
-open ~/Applications/"IP Scanner.app"
+git clone -b claude/vigilant-hypatia-2ajnto https://github.com/rickkollins/IP-Scanner.git ~/IP-Scanner \
+  && ~/IP-Scanner/build_app.sh && open ~/Applications/"IP Scanner.app"
 ```
 
-You can then start **IP Scanner** from Launchpad or Spotlight, or drag it to your Dock.
+This installs **IP Scanner** into `~/Applications`, so you can start it from Launchpad or
+Spotlight, or drag it to your Dock. To update later, run
+`cd ~/IP-Scanner && git pull && ./build_app.sh`.
 
-The app needs Python 3 with Tkinter. On a MacBook, either of these works:
-
-- `xcode-select --install` (gives you `/usr/bin/python3`, which includes Tkinter), or
-- `brew install python python-tk`
-
-The first time you scan, macOS (Sequoia and later) may ask to allow access to devices on your
-**local network**. Click **Allow**. If you missed the prompt, turn it on in
-**System Settings → Privacy & Security → Local Network**.
+- If macOS asks to install the **command line developer tools**, click **Install**, then run
+  the command again. That gives you `git` and Python 3 with Tkinter. If you use Homebrew, run
+  `brew install python-tk` instead.
+- The first time you scan, macOS may ask to allow access to devices on your **local network**.
+  Click **Allow**. If you missed the prompt, turn it on in
+  **System Settings → Privacy & Security → Local Network**.
+- When **Clear ARP & DNS cache before scan** is on (the default), macOS asks for your
+  administrator password before each scan. Clearing these caches needs admin rights. Untick
+  the box to skip it.
 
 ## Using it
 
-1. The **Network(s)** box is filled in automatically with the subnet your Mac is on, for example
-   `192.168.1.0/24`. You can change it or add more, separated by commas. The largest network
-   allowed is a /16.
-2. Click **Scan**. Hosts appear as they're found, sorted by IP. Hosts with at least one open
-   port are shown in green.
-3. **Double-click** an open port to open `http://ip:port` in your browser.
-4. Click a column header to sort, or **Export CSV…** to save the results.
+1. The range box is filled in with your Mac's network, e.g. `192.168.1.1-254`. You can also
+   type ranges (`10.0.0.1-50`, `10.0.0.1-10.0.1.255`), subnets (`10.0.0.0/24`) or single IPs,
+   separated by commas. **My network** fills in your current network again. The limit is
+   65,536 addresses (a /16).
+2. Press **Scan** (⌘R). Devices appear as they're found. The status bar shows
+   *N alive, M dead*.
+3. Click a column heading to sort, and use **Search** to filter by name, IP, maker, MAC or
+   service.
+4. Click the ▸ arrow on a device to see its open services. **Double-click** a service to open it:
+   web ports open in your browser, SSH opens Terminal, SMB/AFP open Finder, and VNC opens
+   Screen Sharing.
+5. **Right-click** a device to open a service, copy its IP, name or MAC, or rescan just that
+   device.
+6. **File → Export CSV…** (⌘E) saves the list.
 
-## How it works
+## Ports checked
 
-1. **Ping sweep** of every address in the subnet, 128 at a time. Each host that replies gets
-   its ports checked with a TCP connect.
-2. **ARP table**: the sweep fills the Mac's ARP cache. Hosts that ignore ping (for example a
-   firewalled Mac or a Windows PC) still answer ARP, so they get added and port-checked too.
-   This step also supplies the MAC addresses.
-3. **Hostnames** come from reverse DNS, with a fallback to a Bonjour/mDNS lookup
-   (`something.local`).
+All of these are checked by default. You can edit the **Ports** box, which accepts ranges like
+`8000-8100`; **Defaults** restores the list.
 
-A /24 network usually takes 5–15 seconds.
+| Port | Service | Port | Service | Port | Service |
+|-----:|---------|-----:|---------|-----:|---------|
+| 21 | FTP | 548 | AFP | 5432 | PostgreSQL |
+| 22 | SSH | 554 | RTSP (cameras) | 5900 | VNC / Screen Sharing |
+| 23 | Telnet | 631 | IPP (printing) | 7000 | AirPlay |
+| 25 | SMTP | 993 | IMAPS | 8000 | HTTP (alt) |
+| 53 | DNS | 995 | POP3S | 8008 | HTTP (alt) |
+| 80 | HTTP | 1883 | MQTT | 8080 | HTTP proxy |
+| 81 | HTTP (alt) | 3000 | HTTP (dev) | 8081 | HTTP (alt) |
+| 110 | POP3 | 3306 | MySQL | 8123 | Home Assistant |
+| 135 | MS RPC | 3389 | RDP | 8443 | HTTPS (alt) |
+| 139 | NetBIOS | 4007 | — | 8888 | HTTP (alt) |
+| 143 | IMAP | 4008 | — | 9000 | HTTP (alt) |
+| 443 | HTTPS | 5000 | HTTP (UPnP / Synology) | 9100 | Printer (JetDirect) |
+| 445 | SMB | 5001 | HTTPS (Synology) | 32400 | Plex |
+| | | | | 62078 | Apple device sync |
+
+## How a scan works
+
+1. **Clear caches** (optional, on by default): wipes the ARP cache (`arp -a -d`) and the DNS
+   cache (`dscacheutil -flushcache`, `killall -HUP mDNSResponder`). Without this, devices that
+   have left the network can still show up as alive, and renamed devices can keep their old
+   names.
+2. **Discovery**: pings every address, 128 at a time. The pings also refill the ARP cache, so
+   devices that ignore ping but answer ARP (firewalled Macs, Windows PCs) are found as well.
+3. **Ports**: every port on every alive device is checked in parallel.
+4. **Names**: reverse DNS first, then Bonjour/mDNS (`name.local`), then NetBIOS (Windows
+   names).
+5. **Manufacturer**: looked up from the MAC address in the bundled IEEE vendor list
+   (`data/oui.txt.gz`). Phones and laptops that use a private Wi-Fi address show
+   *Private (randomized MAC)*.
+
+A /24 network (254 addresses) usually takes 10–20 seconds.
 
 ## Command line
 
-You can also run the scanner without the window:
-
 ```bash
-python3 scanner.py                         # auto-detect the local subnet
-python3 scanner.py 192.168.1.0/24          # a specific subnet
-python3 scanner.py -p 80,443,8123 --csv out.csv
+python3 scanner.py                         # your network; clears caches first (asks for sudo)
+python3 scanner.py 192.168.1.1-254         # a specific range
+python3 scanner.py --no-flush -p 22,80,443 --csv out.csv
 ```
 
 ## Tests
