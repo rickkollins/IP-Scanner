@@ -1,10 +1,17 @@
 #!/bin/bash
-# Builds "IP Scanner.app" and installs it into ~/Applications (or the folder
-# given as the first argument). Run on the Mac:  ./build_app.sh
+# Builds "IP Scanner.app" and installs it into /Applications (falling back to
+# ~/Applications if that isn't writable), or into the folder given as the
+# first argument. Run on the Mac:  ./build_app.sh
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
-DEST="${1:-$HOME/Applications}"
+if [ -n "${1:-}" ]; then
+  DEST="$1"
+elif [ -w /Applications ]; then
+  DEST=/Applications
+else
+  DEST="$HOME/Applications"
+fi
 APP="$DEST/IP Scanner.app"
 
 mkdir -p "$DEST"
@@ -49,5 +56,16 @@ exit 1
 LAUNCHER
 chmod +x "$APP/Contents/MacOS/IP Scanner"
 
+# Remove the copy an older version of this script put in ~/Applications.
+OLD="$HOME/Applications/IP Scanner.app"
+if [ "$APP" != "$OLD" ] && [ -d "$OLD" ]; then
+  rm -rf "$OLD"
+fi
+
+echo
 echo "Installed: $APP"
-echo "Open it from Finder/Launchpad, or run:  open \"$APP\""
+echo "Find it in Finder > Applications, Launchpad, or Spotlight (Cmd+Space, \"IP Scanner\")."
+if [ -z "${1:-}" ] && command -v open >/dev/null; then
+  open -R "$APP"   # show it in Finder
+  open "$APP"
+fi

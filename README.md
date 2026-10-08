@@ -12,11 +12,12 @@ Open **Terminal** and paste:
 
 ```bash
 git clone -b claude/vigilant-hypatia-2ajnto https://github.com/rickkollins/IP-Scanner.git ~/IP-Scanner \
-  && ~/IP-Scanner/build_app.sh && open ~/Applications/"IP Scanner.app"
+  && ~/IP-Scanner/build_app.sh
 ```
 
-This installs **IP Scanner** into `~/Applications`, so you can start it from Launchpad or
-Spotlight, or drag it to your Dock. To update later, run
+This installs **IP Scanner** into your Applications folder, shows it in Finder and opens it. Start it
+from Finder → Applications, Launchpad or Spotlight, or drag it to your Dock. (If your account
+can't write to `/Applications`, it goes into the Applications folder inside your home folder.) To update later, run
 `cd ~/IP-Scanner && git pull && ./build_app.sh`.
 
 - If macOS asks to install the **command line developer tools**, click **Install**, then run
