@@ -6,7 +6,37 @@ your network and lists each one's **name**, **IP**, **manufacturer**, **MAC addr
 
 The scanning code uses only built-in Python, so there is nothing to `pip install`.
 
-## Install on your MacBook
+## Install from the DMG (easiest)
+
+The DMG contains a self-contained **IP Scanner.app** with Python built in, so you don't need to
+install Python, Git or anything else. It runs on both Apple silicon and Intel Macs.
+
+1. Download **IP-Scanner-x.y.z.dmg** from the repo's
+   [Releases](https://github.com/rickkollins/IP-Scanner/releases) page.
+2. Double-click the DMG, then drag **IP Scanner** onto the **Applications** shortcut in the window.
+3. Eject the DMG, then open IP Scanner from Applications or Launchpad.
+
+**First launch:** the app isn't notarized by Apple, so the first time you open a downloaded copy
+macOS says it "cannot verify" the app. Click **Done**, then go to **System Settings → Privacy &
+Security**, scroll down and click **Open Anyway** next to the IP Scanner message. Enter your
+password, and click **Open**. You only need to do this once. Alternatively, run this in
+Terminal: `xattr -dr com.apple.quarantine "/Applications/IP Scanner.app"`.
+
+### Building the DMG yourself
+
+On your Mac, with Python from python.org installed:
+
+```bash
+cd ~/IP-Scanner && ./make_dmg.sh
+```
+
+This creates `dist/IP-Scanner-<version>.dmg` and shows it in Finder. A DMG you build yourself
+opens without the "cannot verify" step. GitHub also builds the DMG automatically on every push:
+open the repo's **Actions** tab, click the latest **Build DMG** run, and download
+**IP-Scanner-dmg** under *Artifacts*. Pushing a version tag (e.g. `v2.1.0`) publishes it as a
+release.
+
+## Install from source (Terminal)
 
 **1. Install Python** from [python.org/downloads](https://www.python.org/downloads/): click
 **Download Python** and run the installer. (Homebrew users can run `brew install python-tk`

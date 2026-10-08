@@ -28,6 +28,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable
 
+__version__ = "2.1.0"
+
 # Port -> service name. These are all checked by default.
 SERVICES: dict[int, str] = {
     21: "FTP",
@@ -78,7 +80,8 @@ DEFAULT_PORTS = tuple(SERVICES)
 MAX_HOSTS = 65536
 
 IS_MAC = sys.platform == "darwin"
-HERE = os.path.dirname(os.path.abspath(__file__))
+# Inside the bundled app (PyInstaller) data files live in sys._MEIPASS.
+HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
 
 @dataclass
