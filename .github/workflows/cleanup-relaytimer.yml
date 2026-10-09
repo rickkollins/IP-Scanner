@@ -1,0 +1,16 @@
+# One-time cleanup: removes the RelayTimer release that moved to
+# rickkollins/ESP32-C3-Relay-Timer. Deleted again right after it runs.
+name: Remove RelayTimer release
+on:
+  push:
+    branches: ["claude/fervent-fermat-iet8ds"]
+    paths: [".github/workflows/cleanup-relaytimer.yml"]
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete relaytimer-latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
