@@ -17,7 +17,7 @@ state = {
     "names": ["Front Door", "Back Door"],
     "modes": ["auto", "auto"],
     "tz": "EST5EDT,M3.2.0,M11.1.0",
-    "ssid": "", "pass": "", "apPass": "relay1234",
+    "ssid": "", "pass": "", "apPass": "relay1234", "pins": [0, 1], "activeHigh": True,
     "relays": [
         [[[1080, 1410]] for _ in range(5)] + [[[1080, 60]], [[1080, 60]]],  # Fri/Sat overnight
         [[[360, 420], [1140, 1170]], [[360, 400]], [], [[360, 400]], [], [[360, 400]], [[480, 540]]],
@@ -53,7 +53,8 @@ def settings():
     return {"tz": state["tz"], "ssid": state["ssid"], "hasPass": bool(state["pass"]),
             "apSsid": "RelayTimer-3F2A", "apIp": "192.168.4.1",
             "staConnected": bool(state["ssid"]), "staIp": "192.168.1.57" if state["ssid"] else "",
-            "rssi": -58, "host": "relaytimer.local", "names": state["names"]}
+            "rssi": -58, "host": "relaytimer.local", "names": state["names"],
+            "version": "mock", "pins": state["pins"], "activeHigh": state["activeHigh"]}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -103,7 +104,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/settings":
             if "apPass" in body and len(body["apPass"]) < 8:
                 return self.send({"error": "hotspot password needs 8+ characters"}, 400)
-            for k in ("names", "tz", "ssid", "pass", "apPass"):
+            if "pins" in body:
+                a, b = body["pins"]
+                ok = lambda p: 0 <= p <= 10 or p in (20, 21)
+                if not (ok(a) and ok(b)) or a == b:
+                    return self.send({"error": "pick two different GPIOs from 0-10, 20, 21"}, 400)
+            for k in ("names", "tz", "ssid", "pass", "apPass", "pins", "activeHigh"):
                 if k in body:
                     state[k] = body[k]
             return self.send(settings())

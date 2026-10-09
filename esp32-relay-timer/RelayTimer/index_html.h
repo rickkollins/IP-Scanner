@@ -270,6 +270,17 @@ select.inp{background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
       <button class="btn block" style="margin-top:14px" onclick="saveNames()">Save names</button>
     </div>
 
+    <div class="h2">Hardware</div>
+    <div class="card">
+      <div class="row">
+        <label class="fld grow" style="margin-top:0"><span id="pinLab0">Relay 1 GPIO</span><select class="inp" id="pin0"></select></label>
+        <label class="fld grow" style="margin-top:0"><span id="pinLab1">Relay 2 GPIO</span><select class="inp" id="pin1"></select></label>
+      </div>
+      <label class="fld"><span>Relay switches on when the pin is</span><select class="inp" id="acth"><option value="1">HIGH (most boards)</option><option value="0">LOW</option></select></label>
+      <div class="tiny" style="margin-top:10px">Check your board's markings for the relay pins. To test, set a relay to <b>Always on</b> on Home and listen for the click.</div>
+      <button class="btn block" style="margin-top:14px" onclick="saveHw()">Save hardware</button>
+    </div>
+
     <div class="h2">Time</div>
     <div class="card">
       <label class="fld" style="margin-top:0"><span>Time zone</span><select class="inp" id="tz"></select></label>
@@ -307,6 +318,7 @@ select.inp{background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
       <div class="kv"><span>Home address</span><b id="host">–</b></div>
       <div class="kv"><span>Uptime</span><b id="uptime">–</b></div>
       <div class="kv"><span>Device date</span><b id="ddate">–</b></div>
+      <div class="kv"><span>Firmware</span><b id="fwver">–</b></div>
     </div>
   </section>
 </div>
@@ -660,6 +672,14 @@ function renderSettings() {
   $('staState').textContent = settings.staConnected ? `Connected to ${settings.ssid}` : settings.ssid ? `Connecting to ${settings.ssid}…` : 'Not connected';
   $('staInfo').textContent = settings.staConnected ? `IP ${settings.staIp} · signal ${settings.rssi} dBm` : 'Joining Wi-Fi gets internet time & a home address';
   $('apSsid').textContent = settings.apSsid; $('apIp').textContent = 'http://' + settings.apIp;
+  const PINS = [0,1,2,3,4,5,6,7,8,9,10,20,21], NOTE = {2:' (boot pin)',8:' (boot pin)',9:' (boot pin)',20:' (RX)',21:' (TX)'};
+  [0,1].forEach(r => {
+    $('pin'+r).innerHTML = PINS.map(g => `<option value="${g}">GPIO ${g}${NOTE[g] || ''}</option>`).join('');
+    $('pin'+r).value = settings.pins[r];
+    $('pinLab'+r).textContent = `${settings.names[r]} GPIO`;
+  });
+  $('acth').value = settings.activeHigh ? '1' : '0';
+  $('fwver').textContent = settings.version || '–';
   $('host').textContent = settings.staConnected ? `http://${settings.host}` : '(join home Wi-Fi first)';
 }
 async function loadSettings() {
@@ -670,6 +690,11 @@ async function postSettings(body, msg) {
   catch (e) { toast(e.message, true); }
 }
 function saveNames() { postSettings({names:[$('n0').value, $('n1').value]}, 'Names saved').then(() => { $('relayCards').innerHTML = ''; renderAll(); }); }
+function saveHw() {
+  const pins = [+$('pin0').value, +$('pin1').value];
+  if (pins[0] === pins[1]) return toast('Pick two different GPIOs', true);
+  postSettings({pins, activeHigh:$('acth').value === '1'}, 'Hardware saved');
+}
 function saveTz() {
   const v = $('tz').value === 'custom' ? $('tzCustom').value.trim() : $('tz').value;
   if (!v) return toast('Enter a TZ string', true);

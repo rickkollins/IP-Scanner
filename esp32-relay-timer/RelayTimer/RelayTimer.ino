@@ -26,10 +26,13 @@
 #include <sys/time.h>
 #include "index_html.h"
 
+#define FW_VERSION "1.1.0"
+
 // ---------------------------------------------------------------- config ---
-// Check the silkscreen / listing of your module for the relay GPIOs.
-static const uint8_t RELAY_PINS[2] = {0, 1};
-static const bool RELAY_ACTIVE_HIGH = true;   // false if relays click on LOW
+// Defaults only: the relay GPIOs and polarity can be changed in the app under
+// Settings > Hardware, so a prebuilt .bin works with any ESP32-C3 relay board.
+static const uint8_t DEFAULT_RELAY_PINS[2] = {0, 1};
+static const bool DEFAULT_ACTIVE_HIGH = true;   // false if relays click on LOW
 static const int STATUS_LED_PIN = -1;         // e.g. 8 for the on-board LED, -1 = none
 
 static const char *AP_SSID_PREFIX = "RelayTimer-";
@@ -54,12 +57,18 @@ static String relayNames[NUM_RELAYS] = {"Front Door", "Back Door"};
 static String tzString = DEFAULT_TZ;
 static String staSsid, staPass, apPass = AP_DEFAULT_PASS, apSsid;
 static bool fsOk = false;
+static uint8_t relayPins[2] = {DEFAULT_RELAY_PINS[0], DEFAULT_RELAY_PINS[1]};
+static bool activeHigh = DEFAULT_ACTIVE_HIGH;
 
 static WebServer server(80);
 static DNSServer dns;
 static Preferences prefs;
 
 // ----------------------------------------------------------- persistence ---
+// GPIOs that may drive a relay on an ESP32-C3: 11-17 belong to the flash on
+// most modules and 18/19 are the USB port.
+static bool usablePin(int p) { return (p >= 0 && p <= 10) || p == 20 || p == 21; }
+
 static String dayPath(uint8_t r, uint8_t d) {
   return String("/sched/r") + r + "d" + d + ".txt";
 }
@@ -137,7 +146,17 @@ static void loadAll() {
   staSsid = prefs.getString("ssid", "");
   staPass = prefs.getString("pass", "");
   apPass = prefs.getString("appass", AP_DEFAULT_PASS);
+  for (uint8_t r = 0; r < NUM_RELAYS; r++) {
+    char key[8];
+    snprintf(key, sizeof(key), "pin%u", (unsigned)r);
+    relayPins[r] = prefs.getUChar(key, DEFAULT_RELAY_PINS[r]);
+  }
+  activeHigh = prefs.getBool("acth", DEFAULT_ACTIVE_HIGH);
   prefs.end();
+  if (!usablePin(relayPins[0]) || !usablePin(relayPins[1]) || relayPins[0] == relayPins[1]) {
+    relayPins[0] = DEFAULT_RELAY_PINS[0];
+    relayPins[1] = DEFAULT_RELAY_PINS[1];
+  }
 }
 
 static void saveModes() {
@@ -161,7 +180,14 @@ static void applyTimezone() {
 // ---------------------------------------------------------------- relays ---
 static void writeRelay(uint8_t r, bool on) {
   relayOn[r] = on;
-  digitalWrite(RELAY_PINS[r], (on == RELAY_ACTIVE_HIGH) ? HIGH : LOW);
+  digitalWrite(relayPins[r], (on == activeHigh) ? HIGH : LOW);
+}
+
+static void initRelayPins() {
+  for (uint8_t r = 0; r < NUM_RELAYS; r++) {
+    pinMode(relayPins[r], OUTPUT);
+    writeRelay(r, relayOn[r]);
+  }
 }
 
 // Is relay r scheduled ON at minute m of weekday d?  A slot whose off time is
@@ -321,6 +347,10 @@ static void handleGetSettings() {
   doc["staIp"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
   doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
   doc["host"] = String(MDNS_NAME) + ".local";
+  doc["version"] = FW_VERSION;
+  doc["activeHigh"] = activeHigh;
+  JsonArray pins = doc["pins"].to<JsonArray>();
+  for (uint8_t r = 0; r < NUM_RELAYS; r++) pins.add(relayPins[r]);
   JsonArray names = doc["names"].to<JsonArray>();
   for (uint8_t r = 0; r < NUM_RELAYS; r++) names.add(relayNames[r]);
   sendJson(doc);
@@ -331,12 +361,37 @@ static void connectStation() {
   else WiFi.disconnect();
 }
 
-// Body (all optional): {"names":[..], "tz":"...", "ssid":"...", "pass":"...", "apPass":"..."}
+// Body (all optional): {"names":[..], "tz":"...", "ssid":"...", "pass":"...",
+//                       "apPass":"...", "pins":[a,b], "activeHigh":true}
 static void handlePostSettings() {
   JsonDocument doc;
   if (!parseBody(doc)) return;
   bool reconnect = false, restartAp = false;
+  if (doc["pins"].is<JsonArray>()) {
+    int a = doc["pins"][0] | -1, b = doc["pins"][1] | -1;
+    if (!usablePin(a) || !usablePin(b) || a == b)
+      return sendError("pick two different GPIOs from 0-10, 20, 21");
+  }
   prefs.begin("relaytimer", false);
+  if (doc["pins"].is<JsonArray>() || doc["activeHigh"].is<bool>()) {
+    for (uint8_t r = 0; r < NUM_RELAYS; r++) {   // release the old pins first
+      writeRelay(r, false);
+      pinMode(relayPins[r], INPUT);
+    }
+    if (doc["pins"].is<JsonArray>()) {
+      for (uint8_t r = 0; r < NUM_RELAYS; r++) {
+        relayPins[r] = doc["pins"][r].as<int>();
+        char key[8];
+        snprintf(key, sizeof(key), "pin%u", (unsigned)r);
+        prefs.putUChar(key, relayPins[r]);
+      }
+    }
+    if (doc["activeHigh"].is<bool>()) {
+      activeHigh = doc["activeHigh"].as<bool>();
+      prefs.putBool("acth", activeHigh);
+    }
+    initRelayPins();
+  }
   if (doc["names"].is<JsonArray>()) {
     for (uint8_t r = 0; r < NUM_RELAYS; r++) {
       String n = doc["names"][r] | relayNames[r];
@@ -406,13 +461,10 @@ static void handleNotFound() {
 // ----------------------------------------------------------------- setup ---
 void setup() {
   Serial.begin(115200);
-  for (uint8_t r = 0; r < NUM_RELAYS; r++) {
-    pinMode(RELAY_PINS[r], OUTPUT);
-    writeRelay(r, false);
-  }
+  loadAll();
+  initRelayPins();  // all relays start off
   if (STATUS_LED_PIN >= 0) pinMode(STATUS_LED_PIN, OUTPUT);
 
-  loadAll();
   applyTimezone();
 
   WiFi.mode(WIFI_AP_STA);  // start Wi-Fi first so the MAC reads correctly
@@ -443,7 +495,7 @@ void setup() {
   server.onNotFound(handleNotFound);
   server.begin();
 
-  Serial.printf("RelayTimer ready: join \"%s\" (pass \"%s\") and open http://%s\n",
+  Serial.printf("RelayTimer " FW_VERSION " ready: join \"%s\" (pass \"%s\") and open http://%s\n",
                 apSsid.c_str(), apPass.c_str(), WiFi.softAPIP().toString().c_str());
   updateRelays();
 }
