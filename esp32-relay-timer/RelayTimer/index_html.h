@@ -249,10 +249,11 @@ select.inp{background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
       <div class="ticks"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
       <div id="slots"></div>
       <div class="toolbar">
-        <button class="btn ghost" onclick="addSlot()"><svg><use href="#i-plus"/></svg>Add on/off period</button>
+        <button class="btn ghost" onclick="addSlot()"><svg><use href="#i-plus"/></svg>Add period</button>
+        <button class="btn ghost" onclick="openRepeat()"><svg><use href="#i-week"/></svg>Repeat…</button>
       </div>
     </div>
-    <div class="tiny" style="text-align:center;margin-top:4px">An off time earlier than its on time runs overnight into the next day.</div>
+    <div class="tiny" style="text-align:center;margin-top:4px">Up to 50 periods per day. An off time earlier than its on time runs overnight into the next day.</div>
   </section>
 
   <!-- WEEK -->
@@ -360,7 +361,8 @@ const TZS = [
 
 const $ = id => document.getElementById(id);
 let st = null, settings = null;
-let sched = null, saved = null, maxSlots = 8;   // sched[relay][day] = [[on,off],...]
+let sched = null, saved = null, maxSlots = 50;   // sched[relay][day] = [[on,off],...]
+let weekCache = null;
 let curRelay = 0, curDay = new Date().getDay();
 let syncedAt = 0, connected = false, timer = null;
 
@@ -370,7 +372,7 @@ const fmt = m => pad(Math.floor(m/60)) + ':' + pad(m%60);
 const parse = s => { const [h,m] = s.split(':').map(Number); return h*60+m; };
 const clone = o => JSON.parse(JSON.stringify(o));
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const dirty = () => JSON.stringify(sched) !== JSON.stringify(saved);
+const dirty = () => sched && saved && JSON.stringify(sched) !== JSON.stringify(saved);
 
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
@@ -384,11 +386,22 @@ function toast(msg, err) {
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
+// Transfer format for one day: "on-off,on-off,..." in minutes.
+const parseDay = t => t ? t.split(',').map(p => p.split('-').map(Number)) : [];
+const dayText = list => list.map(([a,b]) => a + '-' + b).join(',');
+// One flag per minute of the week for each relay of the saved schedule.
 // Mirror of the firmware rule: off < on means the period runs past midnight.
-function onAt(r, d, m, s = sched) {
-  for (const [a,b] of s[r][d]) { if (a < b ? (m >= a && m < b) : (a > b && m >= a)) return true; }
-  for (const [a,b] of s[r][(d+6)%7]) { if (a > b && m < b) return true; }
-  return false;
+function weekMap(r) {
+  if (!weekCache) weekCache = [];
+  if (!weekCache[r]) {
+    const w = new Uint8Array(7*1440);
+    for (let d = 0; d < 7; d++) for (const [a,b] of saved[r][d]) {
+      const end = a < b ? b : 1440 + b;
+      for (let m = a; m < end; m++) w[(d*1440 + m) % (7*1440)] = 1;
+    }
+    weekCache[r] = w;
+  }
+  return weekCache[r];
 }
 // Device local time right now, extrapolated from the last poll.
 function devNow() {
@@ -400,10 +413,12 @@ function devNow() {
 }
 function nextChange(r) {
   const n = devNow(); if (!n || !saved) return null;
-  const cur = onAt(r, n.wday, n.minute, saved);
+  const w = weekMap(r), base = n.wday*1440 + n.minute, cur = w[base];
   for (let i = 1; i <= 7*1440; i++) {
-    const t = n.minute + i, d = (n.wday + Math.floor(t/1440)) % 7, m = t % 1440;
-    if (onAt(r, d, m, saved) !== cur) return {on:!cur, d, m, days:Math.floor(t/1440)};
+    if (w[(base + i) % (7*1440)] !== cur) {
+      const t = n.minute + i;
+      return {on:!cur, d:(n.wday + Math.floor(t/1440)) % 7, m:t % 1440, days:Math.floor(t/1440)};
+    }
   }
   return null;
 }
@@ -415,7 +430,13 @@ function segments(r, d, s = sched) {
   const out = [];
   for (const [a,b] of s[r][d]) { if (a < b) out.push([a,b]); else if (a > b) out.push([a,1440]); }
   for (const [a,b] of s[r][(d+6)%7]) if (a > b && b > 0) out.push([0,b]);
-  return out;
+  out.sort((x,y) => x[0]-y[0]);
+  const merged = [];                        // overlapping periods draw as one bar
+  for (const p of out) {
+    const last = merged[merged.length-1];
+    if (last && p[0] <= last[1]) last[1] = Math.max(last[1], p[1]); else merged.push([...p]);
+  }
+  return merged;
 }
 function tlHtml(r, d, s, showNow) {
   let h = segments(r, d, s).map(([a,b]) => `<i style="left:${a/14.4}%;width:${(b-a)/14.4}%"></i>`).join('');
@@ -481,7 +502,7 @@ async function setMode(r, mode) {
 // ----- schedule editor
 function renderSched() {
   if (!sched) return;
-  const names = st ? st.relays.map(r => r.name) : ['Relay 1','Relay 2'];
+  const names = st ? st.relays.map(r => r.name) : ['Front Door','Back Door'];
   seg($('segRelay'), names, curRelay, i => { curRelay = i; renderSched(); });
   const n = devNow();
   $('days').innerHTML = ORDER.map(d => {
@@ -506,19 +527,57 @@ function renderDay() {
       <button class="iconbtn" data-del="${i}" title="Remove"><svg><use href="#i-trash"/></svg></button>
     </div><div class="tiny" style="margin:4px 0 0 14px">${dur ? `${Math.floor(dur/60)}h ${pad(dur%60)}m${a > b ? ' · overnight' : ''}` : '<span style="color:var(--bad)">On and off are the same — ignored</span>'}</div>`;
   }).join('') : `<div class="empty"><svg><use href="#i-sun"/></svg><div style="margin-top:6px;font-weight:600">Nothing scheduled</div><div class="tiny">Add a period to switch ${esc(st ? st.relays[curRelay].name : 'this relay')} on.</div></div>`;
-  $('slots').querySelectorAll('input[type=time]').forEach(inp => inp.onchange = () => {
-    if (!inp.value) return;
+  $('slots').onchange = e => {
+    const inp = e.target; if (inp.type !== 'time' || !inp.value) return;
     list[+inp.dataset.i][+inp.dataset.k] = parse(inp.value);
     list.sort((x,y) => x[0]-y[0]); changed(); renderSched();
-  });
-  $('slots').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { list.splice(+b.dataset.del,1); changed(); renderSched(); });
+  };
+  $('slots').onclick = e => {
+    const del = e.target.closest('[data-del]');
+    if (del) { list.splice(+del.dataset.del,1); changed(); renderSched(); }
+  };
 }
 function addSlot() {
   const list = sched[curRelay][curDay];
   if (list.length >= maxSlots) return toast(`Up to ${maxSlots} periods per day`, true);
-  const last = list.length ? list[list.length-1][1] : 7*60;
-  const on = Math.min(last + 60, 22*60), off = Math.min(on + 60, 23*60 + 59);
-  list.push([on, off]); list.sort((x,y) => x[0]-y[0]); changed(); renderSched();
+  const busy = new Uint8Array(1440);
+  for (const [a,b] of segments(curRelay, curDay)) busy.fill(1, a, b);
+  const from = list.length ? Math.max(...list.map(([a,b]) => a < b ? b : 0)) : 7*60;
+  let on = -1;
+  for (let i = 0; i < 1440; i++) { const m = (from + i) % 1440; if (!busy[m]) { on = m; break; } }
+  if (on < 0) return toast(`${DAYS[curDay]} is already on all day`, true);
+  let off = on;
+  while (off < 1440 && off - on < 60 && !busy[off]) off++;
+  list.push([on, off % 1440]); list.sort((x,y) => x[0]-y[0]);
+  changed(); renderSched();
+}
+// Fill a day with a repeating on/off pattern, e.g. on 5 min every 30 min.
+function openRepeat() {
+  openSheet(`<h3>Repeat pattern</h3><div class="tiny" style="margin-bottom:4px">Adds periods to ${DAYS[curDay]} for ${esc(st ? st.relays[curRelay].name : 'this relay')}.</div>
+    <div class="row"><label class="fld grow"><span>From</span><input class="inp" type="time" id="rpFrom" value="00:00"></label>
+      <label class="fld grow"><span>Until</span><input class="inp" type="time" id="rpTo" value="23:59"></label></div>
+    <div class="row"><label class="fld grow"><span>On for (min)</span><input class="inp" type="number" id="rpOn" value="5" min="1" max="1439" inputmode="numeric"></label>
+      <label class="fld grow"><span>Every (min)</span><input class="inp" type="number" id="rpEvery" value="30" min="2" max="1440" inputmode="numeric"></label></div>
+    ${chk('rpReplace', 'Replace the existing periods', true)}
+    <div class="tiny" id="rpInfo" style="margin-top:10px"></div>
+    <button class="btn block" style="margin-top:14px" onclick="doRepeat()">Add periods</button>`);
+  $('sheetBody').oninput = () => { const p = repeatSlots(); $('rpInfo').textContent = p ? `${p.length} period${p.length === 1 ? '' : 's'}` : 'Check the numbers'; };
+  $('sheetBody').oninput();
+}
+function repeatSlots() {
+  const from = parse($('rpFrom').value || '00:00'), to = parse($('rpTo').value || '23:59');
+  const len = +$('rpOn').value, every = +$('rpEvery').value;
+  if (!(len >= 1 && every > len && to > from)) return null;
+  const out = [];
+  for (let m = from; m < to; m += every) out.push([m, Math.min(m + len, to)]);
+  return out;
+}
+function doRepeat() {
+  const p = repeatSlots(); if (!p) return toast('On time must be shorter than the repeat', true);
+  const list = $('rpReplace').checked ? p : sched[curRelay][curDay].concat(p);
+  if (list.length > maxSlots) return toast(`That makes ${list.length}; the limit is ${maxSlots} per day`, true);
+  sched[curRelay][curDay] = list.sort((x,y) => x[0]-y[0]);
+  closeSheet(); changed(); renderSched(); toast(`${p.length} periods added — remember to save`);
 }
 function clearDay() {
   if (!sched[curRelay][curDay].length) return;
@@ -526,12 +585,20 @@ function clearDay() {
 }
 function changed() { const d = dirty(); $('savebar').classList.toggle('show', d); document.body.classList.toggle('dirty', d); }
 function discard() { sched = clone(saved); changed(); renderSched(); }
+// Only the days that changed are sent, one request per relay/day.
 async function saveSchedule() {
+  const todo = [];
+  sched.forEach((days,r) => days.forEach((list,d) => { if (dayText(list) !== dayText(saved[r][d])) todo.push([r,d]); }));
   try {
-    const j = await api('/api/schedule', {relays:sched});
-    saved = j.relays; sched = clone(saved); changed(); renderSched(); renderWeek(); renderHome();
-    toast('Schedule saved to timer');
-  } catch (e) { toast(e.message, true); }
+    for (const [r,d] of todo) {
+      const res = await fetch(`/api/day?relay=${r}&day=${d}`, {method:'POST', headers:{'Content-Type':'text/plain'}, body:dayText(sched[r][d])});
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || ('HTTP ' + res.status));
+      saved[r][d] = parseDay(j.slots);
+    }
+    weekCache = null; sched = clone(saved); changed(); renderSched(); renderWeek(); renderHome();
+    toast(`Saved ${todo.length} day${todo.length === 1 ? '' : 's'} to timer`);
+  } catch (e) { weekCache = null; changed(); toast(e.message, true); }
 }
 
 // ----- copy sheet
@@ -565,7 +632,7 @@ function doCopy() {
 // ----- week overview
 function renderWeek() {
   if (!saved) return;
-  const n = devNow(), names = st ? st.relays.map(r => r.name) : ['Relay 1','Relay 2'];
+  const n = devNow(), names = st ? st.relays.map(r => r.name) : ['Front Door','Back Door'];
   $('weekCards').innerHTML = names.map((nm,r) => `
     <div class="card">
       <div class="row" style="margin-bottom:12px"><div class="grow"><h3 style="margin:0;font-size:17px">${esc(nm)}</h3>
@@ -685,7 +752,7 @@ async function init() {
   await poll();
   try {
     const j = await api('/api/schedule');
-    maxSlots = j.maxSlots; saved = j.relays; sched = clone(saved);
+    maxSlots = j.maxSlots; saved = j.relays.map(days => days.map(parseDay)); sched = clone(saved); weekCache = null;
     if (st && st.timeValid) curDay = st.wday;
   } catch (e) { toast('Could not reach the timer', true); }
   renderAll();

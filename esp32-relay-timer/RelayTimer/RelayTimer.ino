@@ -8,7 +8,8 @@
  *      joins it, gets the time from the internet, and is reachable at
  *      http://relaytimer.local (or the IP shown in Settings).
  *
- * Board:   "ESP32C3 Dev Module" (Arduino core for ESP32 v3.x)
+ * Board:   "ESP32C3 Dev Module" (Arduino core for ESP32 v3.x), with a
+ *          partition scheme that has a SPIFFS/LittleFS area (the default does)
  * Library: ArduinoJson v7 (Library Manager)
  */
 
@@ -17,7 +18,10 @@
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
+#include <LittleFS.h>
 #include <ArduinoJson.h>
+#include <vector>
+#include <algorithm>
 #include <time.h>
 #include <sys/time.h>
 #include "index_html.h"
@@ -35,34 +39,92 @@ static const char *DEFAULT_TZ = "EST5EDT,M3.2.0,M11.1.0";
 
 // ----------------------------------------------------------------- model ---
 static const uint8_t NUM_RELAYS = 2;
-static const uint8_t MAX_SLOTS = 8;      // on/off periods per relay per day
-static const uint8_t SCHED_VERSION = 1;
+static const uint16_t MAX_SLOTS = 50;    // on/off periods per relay per day
 
 enum Mode : uint8_t { MODE_AUTO = 0, MODE_ON = 1, MODE_OFF = 2 };
 
 struct Slot { uint16_t on, off; };        // minutes since midnight, 0..1439
-struct Day { uint8_t count; Slot slot[MAX_SLOTS]; };
-struct Schedule { Day day[NUM_RELAYS][7]; }; // day index: 0 = Sunday (tm_wday)
+// Periods are kept per relay and weekday (0 = Sunday, as tm_wday) and stored
+// on flash as one small text file each: "on-off,on-off,..."
+static std::vector<Slot> sched[NUM_RELAYS][7];
 
-static Schedule sched;
 static Mode modes[NUM_RELAYS] = {MODE_AUTO, MODE_AUTO};
 static bool relayOn[NUM_RELAYS] = {false, false};
-static String relayNames[NUM_RELAYS] = {"Relay 1", "Relay 2"};
+static String relayNames[NUM_RELAYS] = {"Front Door", "Back Door"};
 static String tzString = DEFAULT_TZ;
 static String staSsid, staPass, apPass = AP_DEFAULT_PASS, apSsid;
+static bool fsOk = false;
 
 static WebServer server(80);
 static DNSServer dns;
 static Preferences prefs;
 
 // ----------------------------------------------------------- persistence ---
-static void loadAll() {
-  prefs.begin("relaytimer", true);
-  memset(&sched, 0, sizeof(sched));
-  if (prefs.getUChar("sver", 0) == SCHED_VERSION &&
-      prefs.getBytesLength("sched") == sizeof(sched)) {
-    prefs.getBytes("sched", &sched, sizeof(sched));
+static String dayPath(uint8_t r, uint8_t d) {
+  return String("/sched/r") + r + "d" + d + ".txt";
+}
+
+// Parse "on-off,on-off,..." into a sorted list. Returns false on bad input.
+static bool parseSlots(const String &text, std::vector<Slot> &out) {
+  out.clear();
+  const char *p = text.c_str();
+  while (*p) {
+    while (*p == ',' || *p == ' ' || *p == '\n' || *p == '\r') p++;
+    if (!*p) break;
+    char *end;
+    long on = strtol(p, &end, 10);
+    if (end == p || *end != '-') return false;
+    p = end + 1;
+    long off = strtol(p, &end, 10);
+    if (end == p) return false;
+    p = end;
+    if (on < 0 || on > 1439 || off < 0 || off > 1439) return false;
+    if (on == off) continue;                       // zero-length: ignore
+    if (out.size() >= MAX_SLOTS) return false;
+    out.push_back({(uint16_t)on, (uint16_t)off});
   }
+  std::sort(out.begin(), out.end(), [](const Slot &a, const Slot &b) {
+    return a.on != b.on ? a.on < b.on : a.off < b.off;
+  });
+  return true;
+}
+
+static String formatSlots(const std::vector<Slot> &v) {
+  String s;
+  s.reserve(v.size() * 10);
+  for (size_t i = 0; i < v.size(); i++) {
+    if (i) s += ',';
+    s += v[i].on; s += '-'; s += v[i].off;
+  }
+  return s;
+}
+
+static bool saveDay(uint8_t r, uint8_t d) {
+  if (!fsOk) return false;
+  File f = LittleFS.open(dayPath(r, d), "w");
+  if (!f) return false;
+  String text = formatSlots(sched[r][d]);
+  bool ok = f.print(text) == text.length();
+  f.close();
+  return ok;
+}
+
+static void loadAll() {
+  fsOk = LittleFS.begin(true);   // formats the data partition on first boot
+  if (fsOk) {
+    LittleFS.mkdir("/sched");
+    for (uint8_t r = 0; r < NUM_RELAYS; r++)
+      for (uint8_t d = 0; d < 7; d++) {
+        File f = LittleFS.open(dayPath(r, d), "r");
+        if (!f) continue;
+        if (!parseSlots(f.readString(), sched[r][d])) sched[r][d].clear();
+        f.close();
+      }
+  } else {
+    Serial.println("LittleFS failed: check the partition scheme; schedule won't persist");
+  }
+
+  prefs.begin("relaytimer", true);
   for (uint8_t r = 0; r < NUM_RELAYS; r++) {
     char key[8];
     snprintf(key, sizeof(key), "mode%u", (unsigned)r);
@@ -75,22 +137,6 @@ static void loadAll() {
   staSsid = prefs.getString("ssid", "");
   staPass = prefs.getString("pass", "");
   apPass = prefs.getString("appass", AP_DEFAULT_PASS);
-  prefs.end();
-
-  // Sanitise anything that came out of flash.
-  for (uint8_t r = 0; r < NUM_RELAYS; r++)
-    for (uint8_t d = 0; d < 7; d++) {
-      Day &dy = sched.day[r][d];
-      if (dy.count > MAX_SLOTS) dy.count = 0;
-      for (uint8_t i = 0; i < dy.count; i++)
-        if (dy.slot[i].on > 1439 || dy.slot[i].off > 1439) dy.count = 0;
-    }
-}
-
-static void saveSchedule() {
-  prefs.begin("relaytimer", false);
-  prefs.putBytes("sched", &sched, sizeof(sched));
-  prefs.putUChar("sver", SCHED_VERSION);
   prefs.end();
 }
 
@@ -121,17 +167,12 @@ static void writeRelay(uint8_t r, bool on) {
 // Is relay r scheduled ON at minute m of weekday d?  A slot whose off time is
 // earlier than its on time runs past midnight into the following day.
 static bool scheduledOn(uint8_t r, uint8_t d, uint16_t m) {
-  const Day &today = sched.day[r][d];
-  for (uint8_t i = 0; i < today.count; i++) {
-    const Slot &s = today.slot[i];
+  for (const Slot &s : sched[r][d]) {
     if (s.on < s.off) { if (m >= s.on && m < s.off) return true; }
-    else if (s.on > s.off) { if (m >= s.on) return true; }
+    else if (m >= s.on) return true;
   }
-  const Day &yday = sched.day[r][(d + 6) % 7];
-  for (uint8_t i = 0; i < yday.count; i++) {
-    const Slot &s = yday.slot[i];
+  for (const Slot &s : sched[r][(d + 6) % 7])
     if (s.on > s.off && m < s.off) return true;
-  }
   return false;
 }
 
@@ -205,52 +246,39 @@ static void handleState() {
   sendJson(doc);
 }
 
+// {"maxSlots":50,"relays":[["on-off,on-off,...", x7 days], x2 relays]}
+// Streamed one day at a time so the whole week never sits in one buffer.
 static void handleGetSchedule() {
-  JsonDocument doc;
-  doc["maxSlots"] = MAX_SLOTS;
-  JsonArray relays = doc["relays"].to<JsonArray>();
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
+  server.sendContent(String("{\"maxSlots\":") + MAX_SLOTS + ",\"relays\":[");
   for (uint8_t r = 0; r < NUM_RELAYS; r++) {
-    JsonArray days = relays.add<JsonArray>();
-    for (uint8_t d = 0; d < 7; d++) {
-      JsonArray slots = days.add<JsonArray>();
-      for (uint8_t i = 0; i < sched.day[r][d].count; i++) {
-        JsonArray s = slots.add<JsonArray>();
-        s.add(sched.day[r][d].slot[i].on);
-        s.add(sched.day[r][d].slot[i].off);
-      }
-    }
+    server.sendContent(r ? ",[" : "[");
+    for (uint8_t d = 0; d < 7; d++)
+      server.sendContent(String(d ? ",\"" : "\"") + formatSlots(sched[r][d]) + "\"");
+    server.sendContent("]");
   }
-  sendJson(doc);
+  server.sendContent("]}");
+  server.sendContent("");  // end of chunked response
 }
 
-// Body: {"relays": [ [ [[on,off],...] x7 days ] x2 relays ]}  (minutes)
-static void handlePostSchedule() {
-  JsonDocument doc;
-  if (!parseBody(doc)) return;
-  JsonArray relays = doc["relays"];
-  if (relays.size() != NUM_RELAYS) return sendError("expected 2 relays");
-  Schedule next;
-  memset(&next, 0, sizeof(next));
-  for (uint8_t r = 0; r < NUM_RELAYS; r++) {
-    JsonArray days = relays[r];
-    if (days.size() != 7) return sendError("expected 7 days");
-    for (uint8_t d = 0; d < 7; d++) {
-      JsonArray slots = days[d];
-      if (slots.size() > MAX_SLOTS) return sendError("too many periods in a day");
-      for (JsonArray s : slots) {
-        int on = s[0] | -1, off = s[1] | -1;
-        if (on < 0 || on > 1439 || off < 0 || off > 1439)
-          return sendError("time out of range");
-        if (on == off) continue;
-        Day &dy = next.day[r][d];
-        dy.slot[dy.count++] = {(uint16_t)on, (uint16_t)off};
-      }
-    }
-  }
-  sched = next;
-  saveSchedule();
+// POST /api/day?relay=0&day=1  body: "on-off,on-off,..." (minutes, 0 = Sunday)
+// Replaces one day's periods for one relay.
+static void handlePostDay() {
+  int r = server.hasArg("relay") ? server.arg("relay").toInt() : -1;
+  int d = server.hasArg("day") ? server.arg("day").toInt() : -1;
+  if (r < 0 || r >= NUM_RELAYS || d < 0 || d > 6) return sendError("bad relay or day");
+  std::vector<Slot> next;
+  if (!parseSlots(server.arg("plain"), next))
+    return sendError("bad periods (max 50 per day, times 0-1439)");
+  sched[r][d].swap(next);
+  if (!saveDay(r, d)) return sendError("could not save to flash", 500);
   updateRelays();
-  handleGetSchedule();
+  JsonDocument doc;
+  doc["relay"] = r;
+  doc["day"] = d;
+  doc["slots"] = formatSlots(sched[r][d]);
+  sendJson(doc);
 }
 
 // Body: {"relay": 0, "mode": "auto"|"on"|"off"}
@@ -406,7 +434,7 @@ void setup() {
   server.on("/", HTTP_GET, handleIndex);
   server.on("/api/state", HTTP_GET, handleState);
   server.on("/api/schedule", HTTP_GET, handleGetSchedule);
-  server.on("/api/schedule", HTTP_POST, handlePostSchedule);
+  server.on("/api/day", HTTP_POST, handlePostDay);
   server.on("/api/relay", HTTP_POST, handleRelay);
   server.on("/api/time", HTTP_POST, handleTime);
   server.on("/api/settings", HTTP_GET, handleGetSettings);

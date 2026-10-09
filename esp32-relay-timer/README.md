@@ -12,19 +12,22 @@ install.
 
 ## Features
 
-- **Two relays, seven days, independent schedules.** Each day can have up to
-  8 on/off periods per relay. A period whose off time is earlier than its on
+- **Two relays — Front Door and Back Door — with independent 7-day
+  schedules.** Each day can have up to **50 on/off periods** per relay; add
+  them one at a time as needed. A period whose off time is earlier than its on
   time runs overnight (e.g. 22:00 → 06:00).
 - **Home:** live state of each relay, a 24-hour timeline for today with a
   "now" marker, the next switching time, and an Auto / Always on / Always off
   override.
-- **Schedule:** pick a relay and a day, edit periods with native time
-  pickers, copy a day to weekdays / weekend / all days (and optionally to the
+- **Schedule:** pick a relay and a day, then **Add period** (it fills the
+  next free gap) and edit times with the phone's time picker. **Repeat…** fills
+  a day with a pattern such as "on 5 min every 30 min, 08:00–20:00". Copy a day to weekdays / weekend / all days (and optionally to the
   other relay). Changes are saved to the board only when you tap **Save**.
 - **Week:** an at-a-glance 7-day chart per relay; tap a day to edit it.
 - **Settings:** relay names, time zone, clock sync from your phone, home Wi-Fi
   (with network scan), hotspot password.
-- Everything is stored in flash and survives power cuts.
+- Everything is stored in flash and survives power cuts (the schedule in
+  LittleFS, one small file per relay per day; settings in NVS).
 
 ## Why Wi-Fi rather than Bluetooth
 
@@ -54,9 +57,14 @@ router.
    pin list. If a relay is on when the app says off, set
    `RELAY_ACTIVE_HIGH` to `false`. Avoid GPIO 18/19 (USB), and GPIO 2, 8, 9
    (boot strapping) unless the board already uses them for the relays.
-3. Optionally change `DEFAULT_TZ` and `AP_DEFAULT_PASS`.
-4. **Tools → Board → ESP32C3 Dev Module**, enable **USB CDC On Boot** if your
-   board uses native USB, select the port, and upload.
+3. Optionally change `DEFAULT_TZ`, `AP_DEFAULT_PASS`, or the period limit
+   `MAX_SLOTS` (50).
+4. Plug the board in by USB. **Tools → Board → ESP32C3 Dev Module**, enable
+   **USB CDC On Boot** if your board uses native USB, keep a partition scheme
+   with a SPIFFS area (the default **4MB with spiffs** does — the schedule is
+   stored there), select the port under **Tools → Port**, and upload.
+   If the upload doesn't start, hold **BOOT**, tap **RESET**, release
+   **BOOT**, and upload again.
 
 The Serial Monitor (115200 baud) prints the hotspot name and password.
 
@@ -111,8 +119,8 @@ python3 tools/mock_server.py
 | Method | Path            | Body / result |
 |--------|-----------------|---------------|
 | GET    | `/api/state`    | clock, relay names / modes / on-off |
-| GET    | `/api/schedule` | `{"maxSlots":8,"relays":[[ [[on,off],…] ×7 days ] ×2]}` — minutes after midnight, day 0 = Sunday |
-| POST   | `/api/schedule` | same shape as GET; replaces the whole schedule |
+| GET    | `/api/schedule` | `{"maxSlots":50,"relays":[["on-off,on-off,…" ×7 days] ×2]}` — minutes after midnight, day 0 = Sunday |
+| POST   | `/api/day?relay=0&day=1` | body `on-off,on-off,…` (text); replaces that relay's day |
 | POST   | `/api/relay`    | `{"relay":0,"mode":"auto"\|"on"\|"off"}` |
 | POST   | `/api/time`     | `{"epoch":1760000000}` sets the clock |
 | GET/POST | `/api/settings` | `names`, `tz`, `ssid`, `pass`, `apPass` |

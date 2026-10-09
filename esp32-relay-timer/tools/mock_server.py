@@ -8,20 +8,25 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 INDEX = Path(__file__).resolve().parent.parent / "web" / "index.html"
-MAX_SLOTS = 8
+MAX_SLOTS = 50
 
 state = {
-    "names": ["Porch Lights", "Garden Pump"],
+    "names": ["Front Door", "Back Door"],
     "modes": ["auto", "auto"],
     "tz": "EST5EDT,M3.2.0,M11.1.0",
     "ssid": "", "pass": "", "apPass": "relay1234",
     "relays": [
-        [[[1080, 1410]]] * 5 + [[[1080, 60]]] * 2,                           # Sun..Fri, Sat overnight
+        [[[1080, 1410]] for _ in range(5)] + [[[1080, 60]], [[1080, 60]]],  # Fri/Sat overnight
         [[[360, 420], [1140, 1170]], [[360, 400]], [], [[360, 400]], [], [[360, 400]], [[480, 540]]],
     ],
 }
+
+
+def day_text(slots):
+    return ",".join(f"{a}-{b}" for a, b in slots)
 
 
 def on_at(r, d, m):
@@ -66,7 +71,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/state":
             return self.send(snapshot())
         if self.path == "/api/schedule":
-            return self.send({"maxSlots": MAX_SLOTS, "relays": state["relays"]})
+            return self.send({"maxSlots": MAX_SLOTS,
+                              "relays": [[day_text(day) for day in r] for r in state["relays"]]})
         if self.path == "/api/settings":
             return self.send(settings())
         if self.path == "/api/scan":
@@ -78,10 +84,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send({"error": "not found"}, 404)
 
     def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-        if self.path == "/api/schedule":
-            state["relays"] = [[[s for s in day if s[0] != s[1]] for day in r] for r in body["relays"]]
-            return self.send({"maxSlots": MAX_SLOTS, "relays": state["relays"]})
+        raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        if self.path.startswith("/api/day"):
+            q = parse_qs(urlparse(self.path).query)
+            r, d = int(q["relay"][0]), int(q["day"][0])
+            slots = [tuple(map(int, p.split("-"))) for p in raw.decode().split(",") if p]
+            slots = sorted(s for s in slots if s[0] != s[1])
+            if len(slots) > MAX_SLOTS or any(not (0 <= v < 1440) for s in slots for v in s):
+                return self.send({"error": "bad periods (max 50 per day, times 0-1439)"}, 400)
+            state["relays"][r][d] = [list(s) for s in slots]
+            return self.send({"relay": r, "day": d, "slots": day_text(slots)})
+        body = json.loads(raw or b"{}")
         if self.path == "/api/relay":
             state["modes"][body["relay"]] = body["mode"]
             return self.send(snapshot())
