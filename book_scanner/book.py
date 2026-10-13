@@ -53,6 +53,8 @@ def number_candidates(line: Line) -> list[tuple[int, bool]]:
     if m:
         n = _as_number(m.group(1))
         return [(n, True)] if n is not None else []
+    if text in ("I", "l", "|"):  # a lone "1" in a serif font
+        return [(1, True)]
     n = _as_number(text.replace(" ", ""))
     if n is not None and len(text.strip(_DASHES).replace(" ", "")) <= 4:
         return [(n, True)]

@@ -20,6 +20,18 @@ jobs:
           python-version: "3.12"
       - name: Install requirements
         run: python -m pip install -r book_scanner/requirements.txt
+      - name: Show what Apple Vision reads in the margins
+        working-directory: book_scanner
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import sys; sys.path.insert(0, "tests")
+          from test_book_scanner import render_page
+          import ocr
+          for n in (1, 7, 11, 23):
+              img = render_page(["Some body text on the page."], n)
+              print(n, [(l.text, int(l.y)) for l in ocr.recognize(img)])
+          PY
       - name: Run tests
         working-directory: book_scanner
         run: python -m unittest discover -s tests -v

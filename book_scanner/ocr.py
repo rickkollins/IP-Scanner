@@ -127,7 +127,9 @@ def _recognize_vision(image: Image.Image, language: str) -> list[Line]:
             scale = max(1.0, 96.0 / patch.height)
             patch = patch.resize((int(patch.width * scale), int(patch.height * scale)),
                                  Image.LANCZOS)
-            for ln in _vision_lines(patch, language, correct=False):
+            found = (_vision_lines(patch, language, correct=False)
+                     or _vision_lines(patch, language, correct=False, fast=True))
+            for ln in found:
                 lines.append(Line(ln.text, box[0] + ln.x / scale, box[1] + ln.y / scale,
                                   ln.w / scale, ln.h / scale, ln.conf))
     lines.sort(key=lambda ln: (ln.y, ln.x))
@@ -163,7 +165,8 @@ def _ink_patches(strip: Image.Image) -> list[tuple[int, int, int, int]]:
     return patches[:12]
 
 
-def _vision_lines(image: Image.Image, language: str, correct: bool) -> list[Line]:
+def _vision_lines(image: Image.Image, language: str, correct: bool,
+                  fast: bool = False) -> list[Line]:
     import Vision
     from Foundation import NSData
 
@@ -174,7 +177,8 @@ def _vision_lines(image: Image.Image, language: str, correct: bool) -> list[Line
     data = NSData.dataWithBytes_length_(png, len(png))
     handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(data, None)
     request = Vision.VNRecognizeTextRequest.alloc().init()
-    request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
+    request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelFast if fast
+                                 else Vision.VNRequestTextRecognitionLevelAccurate)
     request.setUsesLanguageCorrection_(correct)
     if hasattr(request, "setMinimumTextHeight_"):
         request.setMinimumTextHeight_(0.0)

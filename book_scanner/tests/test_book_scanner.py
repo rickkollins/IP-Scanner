@@ -38,7 +38,8 @@ class PageNumberTests(unittest.TestCase):
         self.assertEqual(number_candidates(Line("CHAPTER TWO 37", 0, 0, 1, 1)),
                          [(37, False)])
         self.assertEqual(number_candidates(Line("It was 1923 and cold", 0, 0, 1, 1)), [])
-        self.assertEqual(number_candidates(Line("I", 0, 0, 1, 1)), [])
+        self.assertEqual(number_candidates(Line("I", 0, 0, 1, 1)), [(1, True)])
+        self.assertEqual(number_candidates(Line("IV", 0, 0, 1, 1)), [])
 
     def test_footer_number(self):
         lines = body(["Some text here"]) + [Line("5", 600, 1900, 30, 40)]
@@ -171,7 +172,8 @@ class InkPatchTests(unittest.TestCase):
         patches = ocr._ink_patches(strip)
         self.assertEqual(len(patches), 2)
         x0, y0, x1, y1 = patches[1]
-        self.assertTrue(580 <= x0 <= 600 and 620 <= x1 <= 640 and 80 <= y0 < y1 <= 120)
+        self.assertTrue(585 <= x0 <= 600 and 600 < x1 <= 660 and 75 <= y0 < y1 <= 125,
+                        patches)
         self.assertEqual(ocr._ink_patches(Image.new("L", (100, 50), 255)), [])
 
 
