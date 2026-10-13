@@ -162,6 +162,19 @@ class ExportTests(unittest.TestCase):
             self.assertLess(sect.index("pgNumType"), sect.index("<w:cols"))
 
 
+class InkPatchTests(unittest.TestCase):
+    def test_finds_the_page_number(self):
+        strip = Image.new("L", (1200, 200), 255)
+        draw = ImageDraw.Draw(strip)
+        draw.text((590, 80), "12", font=_font(30), fill=0)
+        draw.text((100, 80), "THE ROAD", font=_font(30), fill=0)
+        patches = ocr._ink_patches(strip)
+        self.assertEqual(len(patches), 2)
+        x0, y0, x1, y1 = patches[1]
+        self.assertTrue(580 <= x0 <= 600 and 620 <= x1 <= 640 and 80 <= y0 < y1 <= 120)
+        self.assertEqual(ocr._ink_patches(Image.new("L", (100, 50), 255)), [])
+
+
 class CaptureTests(unittest.TestCase):
     def test_find_and_flatten_page(self):
         frame = np.full((900, 1200, 3), 40, np.uint8)
@@ -242,7 +255,8 @@ class EndToEndTests(unittest.TestCase):
             book.renumber()
             self.assertEqual([p.number for p in book.pages], [1, 2, 3, 4])
             self.assertEqual([p.number_source for p in book.pages],
-                             [PRINTED, PRINTED, INFERRED, PRINTED])
+                             [PRINTED, PRINTED, INFERRED, PRINTED],
+                             [[(ln.text, int(ln.y)) for ln in p.lines] for p in book.pages])
             self.assertIn("quick brown fox", book.pages[0].text())
             self.assertEqual(len(book.pages[1].paragraphs()), 2)
             out = os.path.join(tmp, "book.docx")

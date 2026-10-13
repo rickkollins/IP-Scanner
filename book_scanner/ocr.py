@@ -108,6 +108,62 @@ def recognize(image: Image.Image, engine: str | None = None,
 
 
 def _recognize_vision(image: Image.Image, language: str) -> list[Line]:
+    gray = image.convert("L")
+    lines = _vision_lines(gray, language, correct=True)
+    # Vision skips a lone page number in the margin, so read each patch of
+    # ink in the header and footer strips again, enlarged, as its own image.
+    width, height = gray.size
+    strip = int(height * MARGIN_STRIP)
+    for top in (0, height - strip):
+        for x0, y0, x1, y1 in _ink_patches(gray.crop((0, top, width, top + strip))):
+            y0, y1 = y0 + top, y1 + top
+            if any(y0 < o.bottom and o.y < y1 and x0 < o.right and o.x < x1
+                   for o in lines):
+                continue
+            pad = max(8, (y1 - y0) // 2)
+            box = (max(0, x0 - pad), max(0, y0 - pad), min(width, x1 + pad),
+                   min(height, y1 + pad))
+            patch = gray.crop(box)
+            scale = max(1.0, 96.0 / patch.height)
+            patch = patch.resize((int(patch.width * scale), int(patch.height * scale)),
+                                 Image.LANCZOS)
+            for ln in _vision_lines(patch, language, correct=False):
+                lines.append(Line(ln.text, box[0] + ln.x / scale, box[1] + ln.y / scale,
+                                  ln.w / scale, ln.h / scale, ln.conf))
+    lines.sort(key=lambda ln: (ln.y, ln.x))
+    return lines
+
+
+def _ink_patches(strip: Image.Image) -> list[tuple[int, int, int, int]]:
+    """Boxes around groups of dark pixels in a margin strip, left to right."""
+    import numpy as np
+
+    a = np.asarray(strip, dtype=np.uint8)
+    if a.size == 0:
+        return []
+    ink = a < min(128, int(a.mean()) - 40)
+    rows = np.where(ink.any(axis=1))[0]
+    cols = np.where(ink.any(axis=0))[0]
+    if len(rows) == 0:
+        return []
+    gap = max(10, a.shape[0] // 4)
+    patches, start, prev = [], cols[0], cols[0]
+    for c in list(cols[1:]) + [None]:
+        if c is None or c - prev > gap:
+            sub = ink[:, start:prev + 1]
+            r = np.where(sub.any(axis=1))[0]
+            # Skip specks and anything cut by the strip's edges (body text).
+            cut = r[0] == 0 or r[-1] == a.shape[0] - 1
+            if prev - start >= 2 and r[-1] - r[0] >= 4 and not cut:
+                patches.append((int(start), int(r[0]), int(prev) + 1, int(r[-1]) + 1))
+            if c is not None:
+                start = c
+        if c is not None:
+            prev = c
+    return patches[:12]
+
+
+def _vision_lines(image: Image.Image, language: str, correct: bool) -> list[Line]:
     import Vision
     from Foundation import NSData
 
@@ -119,7 +175,9 @@ def _recognize_vision(image: Image.Image, language: str) -> list[Line]:
     handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(data, None)
     request = Vision.VNRecognizeTextRequest.alloc().init()
     request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
-    request.setUsesLanguageCorrection_(True)
+    request.setUsesLanguageCorrection_(correct)
+    if hasattr(request, "setMinimumTextHeight_"):
+        request.setMinimumTextHeight_(0.0)
     if language:
         request.setRecognitionLanguages_([language])
     ok, error = handler.performRequests_error_([request], None)
