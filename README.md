@@ -1,5 +1,9 @@
 # IP Scanner
 
+> This repository also contains **Book Scanner**, an app that scans a book with your camera
+> or scanner and saves it as a Word document with the book's own page numbers. See
+> [book_scanner/README.md](book_scanner/README.md).
+
 A macOS network scanner styled after Advanced IP Scanner. It finds every alive IPv4 device on
 your network and lists each one's **name**, **IP**, **manufacturer**, **MAC address** and
 **open services**. Expand a device to see its services, and double-click one to open it.

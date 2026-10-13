@@ -1,0 +1,37 @@
+# Tests the Book Scanner on a GitHub-hosted Mac (this also exercises the
+# Apple Vision text recognition) and checks that the app bundle builds.
+name: Book Scanner
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["book_scanner/**", ".github/workflows/book-scanner.yml"]
+  pull_request:
+    paths: ["book_scanner/**", ".github/workflows/book-scanner.yml"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install requirements
+        run: python -m pip install -r book_scanner/requirements.txt
+      - name: Run tests
+        working-directory: book_scanner
+        run: python -m unittest discover -s tests -v
+      - name: Check Apple Vision is used
+        working-directory: book_scanner
+        run: python -c "import ocr; e = ocr.engines(); print(e); assert e[0] == 'Apple Vision'"
+      - name: Build the app
+        env:
+          PYTHON: python
+        run: |
+          mkdir -p "$RUNNER_TEMP/apps"
+          book_scanner/build_app.sh "$RUNNER_TEMP/apps"
+          APP="$RUNNER_TEMP/apps/Book Scanner.app"
+          plutil -lint "$APP/Contents/Info.plist"
+          "$APP/Contents/Resources/venv/bin/python3" -c "import cv2, docx, PIL, Vision"
