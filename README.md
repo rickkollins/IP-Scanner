@@ -190,3 +190,15 @@ python3 scanner.py --pdf report.pdf
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+## HEIC to PNG converter
+
+`heic-to-png/index.html` is a separate, single-page app that converts iPhone photos
+(`.heic` / `.heif`) to PNG. Double-click the file to open it in any browser, then drop photos
+on it or click **Choose files…**. Each photo gets a **Save PNG** button, and **Save all as ZIP**
+saves everything at once. Tick **Keep every image** to export every frame of a burst or
+multi-image file as its own PNG.
+
+Conversion runs entirely in the browser, so photos are never uploaded. The page loads its
+converter ([heic2any](https://github.com/alexcorvi/heic2any)) and ZIP library from a CDN, so it
+needs an internet connection when it opens.

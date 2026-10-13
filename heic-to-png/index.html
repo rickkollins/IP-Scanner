@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>HEIC to PNG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one centred column — drop zone on top, conversion queue below as a contact sheet of rows. */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --fg: #17212b;
+  --muted: #5d6b78;
+  --line: #d6dde4;
+  --accent: #0f7b74;
+  --accent-fg: #ffffff;
+  --accent-soft: #dcefed;
+  --ok: #1e7a3c;
+  --err: #b3261e;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11171c; --surface: #19222a; --fg: #e6edf2; --muted: #93a2af; --line: #2c3a45;
+    --accent: #3cc2b6; --accent-fg: #06201e; --accent-soft: #163a37; --ok: #5cc98a; --err: #ff8a80;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11171c; --surface: #19222a; --fg: #e6edf2; --muted: #93a2af; --line: #2c3a45;
+  --accent: #3cc2b6; --accent-fg: #06201e; --accent-soft: #163a37; --ok: #5cc98a; --err: #ff8a80;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); }
+main { max-width: 760px; margin: 0 auto; padding: 40px 16px 64px; display: grid; gap: 28px; }
+header { display: grid; gap: 6px; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 6vw, 40px); line-height: 1.1; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h1 .arrow { color: var(--accent); }
+.lede { margin: 0; color: var(--muted); max-width: 60ch; }
+
+.drop {
+  border: 2px dashed var(--line); border-radius: 14px; background: var(--surface);
+  padding: 36px 20px; display: grid; justify-items: center; gap: 12px; text-align: center;
+  transition: border-color .15s, background .15s;
+}
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop p { margin: 0; color: var(--muted); }
+.drop strong { color: var(--fg); font-weight: 600; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center; }
+
+button, .btn {
+  font: 500 14px/1 var(--body); border-radius: 8px; padding: 10px 16px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+button.link { border: 0; background: none; padding: 4px; color: var(--accent); text-decoration: underline; }
+
+.opts { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: center; color: var(--muted); font-size: 13px; }
+.opts label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+
+.queue-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: space-between; }
+.queue-head h2 { font-family: var(--display); font-weight: 600; font-size: 20px; margin: 0; }
+.count { font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+ul.queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.item { background: var(--surface); display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 14px; }
+.thumb { width: 64px; height: 64px; border-radius: 6px; background: var(--bg); object-fit: cover; display: block; }
+.meta { min-width: 0; display: grid; gap: 2px; }
+.name { font-weight: 500; overflow-wrap: anywhere; }
+.detail { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.status { font-size: 13px; }
+.status.ok { color: var(--ok); }
+.status.err { color: var(--err); }
+.status.busy { color: var(--muted); }
+.empty { padding: 28px 16px; text-align: center; color: var(--muted); background: var(--surface); }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+
+@media (max-width: 480px) {
+  .item { grid-template-columns: 48px minmax(0, 1fr); }
+  .thumb { width: 48px; height: 48px; }
+  .item .actions { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>HEIC <span class="arrow">→</span> PNG</h1>
+    <p class="lede">Convert iPhone photos (.heic / .heif) to PNG. Everything happens in your browser, so your photos are never uploaded anywhere.</p>
+  </header>
+
+  <section class="drop" id="drop" aria-label="Add HEIC files">
+    <p><strong>Drop HEIC files here</strong> or</p>
+    <div class="row">
+      <button class="primary" id="pick" type="button">Choose files…</button>
+      <button class="link" id="sample" type="button">Try a sample photo</button>
+    </div>
+    <div class="opts">
+      <label><input type="checkbox" id="allFrames"> Keep every image in burst / multi-image files</label>
+    </div>
+    <input type="file" id="fileInput" accept=".heic,.heif,image/heic,image/heif" multiple hidden>
+  </section>
+
+  <section>
+    <div class="queue-head">
+      <h2>Converted</h2>
+      <span class="count" id="count">0 files</span>
+      <div class="row">
+        <button id="clear" type="button" disabled>Clear</button>
+        <button class="primary" id="saveAll" type="button" disabled>Save all as ZIP</button>
+      </div>
+    </div>
+    <ul class="queue" id="queue" style="margin-top:12px">
+      <li class="empty" id="empty">Converted photos appear here, ready to save as PNG.</li>
+    </ul>
+  </section>
+
+  <p class="note" id="note"></p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+(() => {
+  const SAMPLE_HEIC = "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";
+
+  const $ = (id) => document.getElementById(id);
+  const drop = $("drop"), input = $("fileInput"), queue = $("queue"), empty = $("empty");
+  const saveAllBtn = $("saveAll"), clearBtn = $("clear"), countEl = $("count"), note = $("note");
+  const outputs = []; // { name, blob }
+
+  // Saving: inside a claude.ai Artifact the `downloads` capability is the only way to save;
+  // opened as a local file, a plain <a download> link works.
+  let downloads = null;
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("downloads").then((d) => { downloads = d; }).catch(() => {});
+  }
+  async function saveFile(filename, blob) {
+    if (downloads) {
+      try { await downloads.save({ filename, data: blob }); }
+      catch (e) { if (e && e.code !== "declined") note.textContent = "Couldn't save " + filename + ": " + (e.message || e.code); }
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  const fmtBytes = (n) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB";
+  const baseName = (name) => name.replace(/\.(heic|heif)$/i, "");
+
+  function uniqueName(name) {
+    let candidate = name, i = 2;
+    while (outputs.some((o) => o.name === candidate)) candidate = name.replace(/\.png$/, "") + " (" + i++ + ").png";
+    return candidate;
+  }
+
+  function refresh() {
+    empty.hidden = outputs.length > 0 || queue.children.length > 1;
+    countEl.textContent = outputs.length + (outputs.length === 1 ? " file" : " files");
+    saveAllBtn.disabled = outputs.length === 0;
+    clearBtn.disabled = queue.children.length <= 1;
+  }
+
+  function imageSize(blob) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => { resolve(img.naturalWidth + "×" + img.naturalHeight); URL.revokeObjectURL(img.src); };
+      img.onerror = () => resolve("");
+      img.src = URL.createObjectURL(blob);
+    });
+  }
+
+  function addRow(label) {
+    const li = document.createElement("li");
+    li.className = "item";
+    li.innerHTML = '<img class="thumb" alt=""><div class="meta"><div class="name"></div><div class="detail"></div><div class="status busy">Converting…</div></div><div class="actions"></div>';
+    li.querySelector(".name").textContent = label;
+    queue.appendChild(li);
+    refresh();
+    return li;
+  }
+
+  async function convert(file) {
+    const li = addRow(file.name);
+    const status = li.querySelector(".status");
+    try {
+      if (typeof heic2any !== "function") throw new Error("The converter didn't load. Check your internet connection and reload the page.");
+      const result = await heic2any({ blob: file, toType: "image/png", multiple: $("allFrames").checked || undefined });
+      const blobs = Array.isArray(result) ? result : [result];
+      const stem = baseName(file.name);
+      li.remove();
+      for (let i = 0; i < blobs.length; i++) {
+        const name = uniqueName(blobs.length > 1 ? stem + "-" + (i + 1) + ".png" : stem + ".png");
+        const out = { name, blob: blobs[i] };
+        outputs.push(out);
+        const row = addRow(name);
+        const url = URL.createObjectURL(blobs[i]);
+        row.querySelector(".thumb").src = url;
+        row.querySelector(".thumb").alt = "Preview of " + name;
+        const dims = await imageSize(blobs[i]);
+        row.querySelector(".detail").textContent = [dims, fmtBytes(file.size) + " HEIC → " + fmtBytes(blobs[i].size) + " PNG"].filter(Boolean).join(" · ");
+        const st = row.querySelector(".status");
+        st.className = "status ok"; st.textContent = "Ready";
+        const btn = document.createElement("button");
+        btn.type = "button"; btn.textContent = "Save PNG";
+        btn.addEventListener("click", () => saveFile(out.name, out.blob));
+        row.querySelector(".actions").appendChild(btn);
+      }
+    } catch (err) {
+      const msg = err && (err.message || err.code) ? (err.message || "") : String(err);
+      status.className = "status err";
+      status.textContent = /format not supported|ERR_LIBHEIF/i.test(msg)
+        ? "This file isn't a HEIC image the converter can read."
+        : "Couldn't convert: " + (msg || "unknown error");
+    }
+    refresh();
+  }
+
+  async function handleFiles(list) {
+    note.textContent = "";
+    const files = Array.from(list);
+    const skipped = files.filter((f) => !/\.(heic|heif)$/i.test(f.name) && !/heic|heif/i.test(f.type));
+    if (skipped.length) note.textContent = "Skipped " + skipped.map((f) => f.name).join(", ") + ": only .heic and .heif files can be converted.";
+    for (const f of files) if (!skipped.includes(f)) await convert(f);
+  }
+
+  $("pick").addEventListener("click", () => input.click());
+  input.addEventListener("change", () => { handleFiles(input.files); input.value = ""; });
+  ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  drop.addEventListener("dragleave", (e) => { if (!drop.contains(e.relatedTarget)) drop.classList.remove("over"); });
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); });
+  drop.addEventListener("drop", (e) => handleFiles(e.dataTransfer.files));
+  // Let drops anywhere on the page work, not only on the drop zone.
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => { e.preventDefault(); if (!drop.contains(e.target)) handleFiles(e.dataTransfer.files); });
+
+  $("sample").addEventListener("click", () => {
+    const bytes = Uint8Array.from(atob(SAMPLE_HEIC), (c) => c.charCodeAt(0));
+    handleFiles([new File([bytes], "sample.heic", { type: "image/heic" })]);
+  });
+
+  clearBtn.addEventListener("click", () => {
+    outputs.length = 0;
+    queue.querySelectorAll(".item").forEach((li) => {
+      const img = li.querySelector(".thumb");
+      if (img && img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
+      li.remove();
+    });
+    note.textContent = "";
+    refresh();
+  });
+
+  saveAllBtn.addEventListener("click", async () => {
+    if (outputs.length === 1) return saveFile(outputs[0].name, outputs[0].blob);
+    if (typeof JSZip !== "function") { note.textContent = "The ZIP library didn't load. Save the files one at a time instead."; return; }
+    saveAllBtn.disabled = true; saveAllBtn.textContent = "Zipping…";
+    const zip = new JSZip();
+    outputs.forEach((o) => zip.file(o.name, o.blob));
+    const blob = await zip.generateAsync({ type: "blob" });
+    saveAllBtn.textContent = "Save all as ZIP";
+    refresh();
+    saveFile("heic-to-png.zip", blob);
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>
