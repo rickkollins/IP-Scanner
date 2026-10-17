@@ -33,13 +33,15 @@ class ParsingTests(unittest.TestCase):
 
     def test_detect_skips_loopback_and_link_local(self):
         with mock.patch.object(scanner, "IS_MAC", True), \
+             mock.patch.object(scanner, "IS_WINDOWS", False), \
              mock.patch.object(scanner, "_run", return_value=MAC_IFCONFIG), \
              mock.patch.object(scanner.shutil, "which", return_value="/sbin/ifconfig"):
             nets = scanner.detect_local_networks()
         self.assertEqual(nets, [ipaddress.IPv4Network("192.168.1.0/24")])
 
     def test_arp_table(self):
-        with mock.patch.object(scanner, "_run", return_value=MAC_ARP):
+        with mock.patch.object(scanner, "_run", return_value=MAC_ARP), \
+             mock.patch.object(scanner, "IS_WINDOWS", False):
             table = scanner.arp_table()
         self.assertEqual(table["192.168.1.1"], "00:1a:2b:3c:4d:5e")
         self.assertNotIn("192.168.1.40", table)
@@ -77,7 +79,8 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(scanner.vendor_for_mac(""), "")
 
     def test_flush_commands_on_mac(self):
-        with mock.patch.object(scanner, "IS_MAC", True):
+        with mock.patch.object(scanner, "IS_MAC", True), \
+             mock.patch.object(scanner, "IS_WINDOWS", False):
             cmds = scanner.flush_commands()
         self.assertIn(["arp", "-a", "-d"], cmds)
         self.assertIn(["dscacheutil", "-flushcache"], cmds)
@@ -162,7 +165,9 @@ class MdnsTests(unittest.TestCase):
             srv.close()
 
     def test_no_responder(self):
-        self.assertEqual(scanner.mdns_name("127.0.0.1", timeout=0.2), "")
+        # TEST-NET-1 never answers. (Not 127.0.0.1: a Mac's own Bonjour
+        # service answers there with the Mac's name.)
+        self.assertEqual(scanner.mdns_name("192.0.2.1", timeout=0.2), "")
 
 
 @unittest.skipUnless(sys.platform == "win32", "Windows only")
@@ -185,7 +190,8 @@ class WindowsLiveTests(unittest.TestCase):
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
         s.close()  # nothing listens there now
-        self.assertEqual(scanner.check_port("127.0.0.1", port), (False, True))
+        # Windows retries a refused connection for about a second first.
+        self.assertEqual(scanner.check_port("127.0.0.1", port, timeout=5), (False, True))
 
 
 class ScanTests(unittest.TestCase):
