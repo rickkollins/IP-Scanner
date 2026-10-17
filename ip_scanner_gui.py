@@ -23,6 +23,7 @@ from tkinter import filedialog, messagebox, ttk
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scanner  # noqa: E402
 import report  # noqa: E402
+import theme  # noqa: E402
 
 SETTINGS = os.path.expanduser("~/.ip_scanner.json")
 
@@ -34,28 +35,6 @@ COLUMNS = {  # id: (heading, width, stretch)
     "comments": ("Comments", 260, True),
 }
 
-def dot(color: str, size: int = 12) -> tk.PhotoImage:
-    """A filled circle, used as the status icon."""
-    img = tk.PhotoImage(width=size, height=size)
-    c = (size - 1) / 2
-    for y in range(size):
-        row = []
-        for x in range(size):
-            inside = (x - c) ** 2 + (y - c) ** 2 <= (c - 0.5) ** 2
-            row.append(color if inside else "")
-        for x, px in enumerate(row):
-            if px:
-                img.put(px, (x, y))
-    return img
-
-
-def is_dark(root: tk.Tk) -> bool:
-    try:
-        return bool(int(root.tk.call("tk::unsupported::MacWindowStyle", "isdark", root)))
-    except (tk.TclError, ValueError):
-        return False
-
-
 def load_settings() -> dict:
     try:
         with open(SETTINGS) as f:
@@ -65,9 +44,11 @@ def load_settings() -> dict:
 
 
 def save_settings(data: dict) -> None:
+    """Update the saved settings with data (other keys are kept)."""
+    merged = {**load_settings(), **data}
     try:
         with open(SETTINGS, "w") as f:
-            json.dump(data, f, indent=2)
+            json.dump(merged, f, indent=2)
     except OSError:
         pass
 
@@ -89,69 +70,108 @@ class App:
         settings = load_settings()
 
         root.title("IP Scanner")
-        root.geometry("1080x640")
-        root.minsize(760, 400)
+        root.geometry("1120x700")
+        root.minsize(820, 460)
 
-        self.icon_alive = dot("#2e9d44")
-        self.icon_service = dot("#2f74d0", 10)
+        self.theme = theme.Theme(root)
+        self.mode = settings.get("appearance", "system")
+        if self.mode not in theme.MODES:
+            self.mode = "system"
+        self.theme.apply(self.mode)
+        self.icon_alive = tk.PhotoImage(width=12, height=12)
+        self.icon_service = tk.PhotoImage(width=10, height=10)
 
         self._build_menu()
 
-        # Toolbar: [Scan]  range  [Detect]          search
-        bar = ttk.Frame(root, padding=(10, 10, 10, 4))
+        # Header: logo, title, light/dark switch.
+        header = ttk.Frame(root, style="Header.TFrame", padding=(18, 12))
+        header.pack(fill="x")
+        try:
+            self.logo = tk.PhotoImage(
+                file=os.path.join(scanner.HERE, "data", "icon.png")).subsample(6)
+            ttk.Label(header, image=self.logo, style="Header.TLabel").pack(side="left")
+        except tk.TclError:
+            pass
+        titles = ttk.Frame(header, style="Header.TFrame")
+        titles.pack(side="left", padx=(10, 0))
+        ttk.Label(titles, text="IP Scanner", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(titles, text="Find every device on your network",
+                  style="Subtitle.TLabel").pack(anchor="w")
+        self.theme_btn = ttk.Button(header, style="Header.TButton",
+                                    command=self.toggle_theme)
+        self.theme_btn.pack(side="right")
+
+        # Toolbar card: [Scan] range [My network]   [Expand All] [Print]  Search
+        card = ttk.Frame(root, style="Card.TFrame", padding=(14, 12))
+        card.pack(fill="x", padx=16, pady=(14, 10))
+        bar = ttk.Frame(card, style="Inner.TFrame")
         bar.pack(fill="x")
-        self.scan_btn = ttk.Button(bar, text="▶  Scan", width=10, command=self.toggle_scan)
+        self.scan_btn = ttk.Button(bar, text="▶  Scan", width=10, style="Accent.TButton",
+                                   command=self.toggle_scan)
         self.scan_btn.pack(side="left")
         self.range_var = tk.StringVar(value=self.detected_range())
-        rng = ttk.Entry(bar, textvariable=self.range_var, width=32)
-        rng.pack(side="left", padx=(10, 4))
+        rng = ttk.Entry(bar, textvariable=self.range_var, width=26)
+        rng.pack(side="left", padx=(10, 6))
         rng.bind("<Return>", lambda e: self.toggle_scan())
         ttk.Button(bar, text="My network", command=self.detect).pack(side="left")
-        ttk.Button(bar, text="Print…", command=self.print_report).pack(side="left", padx=(4, 0))
-        self.expand_btn = ttk.Button(bar, text="Expand All", width=12,
-                                     command=lambda: self.expand_all(not self.expanded))
-        self.expand_btn.pack(side="left", padx=(4, 0))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self.refresh_view())
-        ttk.Entry(bar, textvariable=self.search_var, width=18).pack(side="right")
-        ttk.Label(bar, text="Search:").pack(side="right", padx=(0, 4))
+        ttk.Entry(bar, textvariable=self.search_var, width=16).pack(side="right")
+        ttk.Label(bar, text="Search", style="Card.TLabel").pack(side="right", padx=(12, 6))
+        ttk.Button(bar, text="Print…", command=self.print_report).pack(side="right", padx=(6, 0))
+        self.expand_btn = ttk.Button(bar, text="Expand All", width=12,
+                                     command=lambda: self.expand_all(not self.expanded))
+        self.expand_btn.pack(side="right")
 
-        hint = ttk.Frame(root, padding=(10, 0, 10, 4))
-        hint.pack(fill="x")
-        ttk.Label(hint, text="Example: 192.168.1.1-254, 10.0.0.0/24, 192.168.2.10",
-                  foreground="gray").pack(side="left", padx=(98, 0))
+        hint = ttk.Frame(card, style="Inner.TFrame")
+        hint.pack(fill="x", pady=(4, 8))
+        self.hint_label = ttk.Label(
+            hint, text="Examples: 192.168.1.1-254 · 10.0.0.0/24 · 192.168.2.10",
+            style="CardMuted.TLabel")
+        self.hint_label.pack(side="left")
+        # Line the hint up under the range box once the layout is known.
+        root.after_idle(lambda: self.hint_label.pack_configure(
+            padx=(rng.winfo_x(), 0)))
 
-        opts = ttk.Frame(root, padding=(10, 0, 10, 8))
+        opts = ttk.Frame(card, style="Inner.TFrame")
         opts.pack(fill="x")
-        ttk.Label(opts, text="Ports:").pack(side="left")
+        ttk.Label(opts, text="Ports", style="Card.TLabel").pack(side="left")
         self.ports_var = tk.StringVar(
             value=settings.get("ports") or ", ".join(map(str, scanner.DEFAULT_PORTS)))
         ttk.Entry(opts, textvariable=self.ports_var).pack(
-            side="left", fill="x", expand=True, padx=(6, 4))
+            side="left", fill="x", expand=True, padx=(8, 6))
         ttk.Button(opts, text="Defaults", command=lambda: self.ports_var.set(
             ", ".join(map(str, scanner.DEFAULT_PORTS)))).pack(side="left")
         self.flush_var = tk.BooleanVar(value=settings.get("flush", True))
         ttk.Checkbutton(opts, text="Clear ARP & DNS cache before scan",
-                        variable=self.flush_var).pack(side="left", padx=(12, 0))
+                        variable=self.flush_var).pack(side="left", padx=(14, 0))
 
-        # Results list.
-        frame = ttk.Frame(root, padding=(10, 0, 10, 0))
-        frame.pack(fill="both", expand=True)
-        self.tree = ttk.Treeview(frame, columns=list(COLUMNS), selectmode="extended")
+        # Status bar.
+        status = ttk.Frame(root, padding=(18, 10, 18, 12))
+        status.pack(side="bottom", fill="x")
+        self.progress = ttk.Progressbar(status, mode="determinate", length=180)
+        self.progress.pack(side="left")
+        self.status = tk.StringVar(value="Ready. Press Scan to search the network.")
+        ttk.Label(status, textvariable=self.status, style="Status.TLabel").pack(
+            side="left", padx=12)
+        self.counts = tk.StringVar()
+        self.counts_label = ttk.Label(status, textvariable=self.counts, style="Pill.TLabel")
+
+        # Results card.
+        frame = ttk.Frame(root, style="Card.TFrame", padding=(8, 6, 6, 8))
+        frame.pack(fill="both", expand=True, padx=16)
+        self.tree = ttk.Treeview(frame, columns=list(COLUMNS), selectmode="extended",
+                                 height=8)
         vsb = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
         self.tree.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="right", fill="y")
-        self.tree.heading("#0", text="Status")
-        self.tree.column("#0", width=80, stretch=False)
+        vsb.pack(side="right", fill="y", padx=(4, 0))
+        self.tree.heading("#0", text="STATUS", anchor="w")
+        self.tree.column("#0", width=86, stretch=False)
         for col, (title, width, stretch) in COLUMNS.items():
-            self.tree.heading(col, command=lambda c=col: self.sort_by(c))
+            self.tree.heading(col, command=lambda c=col: self.sort_by(c), anchor="w")
             self.tree.column(col, width=width, stretch=stretch, anchor="w")
         self._update_headings()
-        dark = is_dark(root)
-        self.tree.tag_configure("odd", background="#2a2a2c" if dark else "#f4f5f7")
-        self.tree.tag_configure("even", background="#1e1e1e" if dark else "#ffffff")
-        self.tree.tag_configure("service", foreground="#6aa8ff" if dark else "#1f5fbf")
         self.tree.bind("<Double-1>", self.on_double_click)
         self.tree.bind("<Return>", self.on_double_click)
         right_clicks = ("<Button-2>", "<Control-Button-1>") if scanner.IS_MAC else ("<Button-3>",)
@@ -159,18 +179,34 @@ class App:
             self.tree.bind(seq, self.on_right_click)
         self.menu = tk.Menu(root, tearoff=False)
 
-        # Status bar.
-        status = ttk.Frame(root, padding=(10, 6, 10, 10))
-        status.pack(fill="x")
-        self.progress = ttk.Progressbar(status, mode="determinate", length=200)
-        self.progress.pack(side="left")
-        self.status = tk.StringVar(value="Ready. Press Scan to search the network.")
-        ttk.Label(status, textvariable=self.status).pack(side="left", padx=10)
-        self.counts = tk.StringVar()
-        ttk.Label(status, textvariable=self.counts).pack(side="right")
-
+        self._recolor()
         root.protocol("WM_DELETE_WINDOW", self.quit)
         root.after(100, self.poll)
+
+    # ---------------------------------------------------------------- theme
+
+    def set_theme(self, mode: str) -> None:
+        self.mode = mode
+        self.mode_var.set(mode)
+        self.theme.apply(mode)
+        self._recolor()
+        save_settings({"appearance": mode})
+
+    def toggle_theme(self) -> None:
+        self.set_theme("light" if self.theme.palette["name"] == "dark" else "dark")
+
+    def _recolor(self) -> None:
+        """Colours that live outside ttk styles: list rows, icons, menus."""
+        p = self.theme.palette
+        self.tree.tag_configure("odd", background=p["stripe"])
+        self.tree.tag_configure("even", background=p["surface"])
+        self.tree.tag_configure("service", foreground=p["service"])
+        theme.dot_image(self.icon_alive, p["alive"])
+        theme.dot_image(self.icon_service, p["service"])
+        self.menu.configure(background=p["surface"], foreground=p["text"],
+                            activebackground=p["select"], activeforeground=p["select_text"])
+        dark = p["name"] == "dark"
+        self.theme_btn.configure(text="☀  Light" if dark else "☾  Dark")
 
     # ---------------------------------------------------------------- menus
 
@@ -191,6 +227,13 @@ class App:
         view = tk.Menu(bar, tearoff=False)
         view.add_command(label="Expand All", command=lambda: self.expand_all(True))
         view.add_command(label="Collapse All", command=lambda: self.expand_all(False))
+        view.add_separator()
+        appearance = tk.Menu(view, tearoff=False)
+        self.mode_var = tk.StringVar(value=self.mode)
+        for mode, label in (("system", "Match System"), ("light", "Light"), ("dark", "Dark")):
+            appearance.add_radiobutton(label=label, value=mode, variable=self.mode_var,
+                                       command=lambda m=mode: self.set_theme(m))
+        view.add_cascade(label="Appearance", menu=appearance)
         bar.add_cascade(label="View", menu=view)
         self.root.configure(menu=bar)
         self.root.bind_all(f"<{mod}-r>", lambda e: self.toggle_scan())
@@ -381,7 +424,11 @@ class App:
             parts.append(f"{self.total - alive} dead")
         if shown != alive:
             parts.append(f"{shown} shown")
-        self.counts.set(", ".join(parts))
+        self.counts.set(" · ".join(parts))
+        if alive or self.total:
+            self.counts_label.pack(side="right")
+        else:
+            self.counts_label.pack_forget()
 
     # ---------------------------------------------------------------- scan
 
@@ -583,8 +630,13 @@ def self_test(report_path: str) -> int:
         lines.append(f"pdf: {os.path.getsize(path)} bytes")
         root = tk.Tk()
         root.withdraw()
+        app = App(root)
+        for mode in ("light", "dark"):  # both themes must build and draw
+            app.theme.apply(mode)
+            app._recolor()
+            root.update()
         root.destroy()
-        lines.append("tk: ok")
+        lines.append("window + light/dark themes: ok")
         ok = bool(nets) and scanner.ping("127.0.0.1") and vendor == "Apple, Inc."
     except Exception:
         lines.append(traceback.format_exc())
@@ -604,11 +656,6 @@ def main() -> None:
         except (AttributeError, OSError):
             pass
     root = tk.Tk()
-    style = ttk.Style()
-    for theme in ("aqua", "vista", "clam"):
-        if theme in style.theme_names():
-            style.theme_use(theme)
-            break
     try:
         # Dock and window icon (the .app bundle also sets it for Finder).
         icon = tk.PhotoImage(file=os.path.join(scanner.HERE, "data", "icon.png"))

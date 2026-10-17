@@ -129,6 +129,12 @@ Drag **IP Scanner** from Applications to the Trash, then run `rm -rf ~/IP-Scanne
    device.
 6. **File → Export CSV…** (⌘E / Ctrl+E) saves the list.
 
+### Light and dark mode
+
+The window has a light-blue theme and a dark theme. Click **☾ Dark** / **☀ Light** at the top
+right to switch, or choose **View → Appearance → Match System / Light / Dark**. *Match System*
+(the default) follows your Mac or Windows setting. Your choice is remembered.
+
 ### Printing
 
 Click **Print…** in the toolbar (or **File → Print…**, ⌘P / Ctrl+P). The app builds a
