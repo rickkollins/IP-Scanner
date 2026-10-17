@@ -1,10 +1,12 @@
-# PyInstaller spec for "IP Scanner.app" (a self-contained app with Python
-# and Tk bundled). Built by make_dmg.sh and .github/workflows/dmg.yml:
+# PyInstaller spec for the self-contained app (Python and Tk bundled):
+# "IP Scanner.app" on macOS, "IP Scanner.exe" on Windows. Built by
+# make_dmg.sh, make_installer.ps1 and .github/workflows/dmg.yml:
 #   pyinstaller packaging/ip_scanner.spec
 # Set TARGET_ARCH=universal2 to build for both Apple silicon and Intel
 # (needs a universal2 Python, such as the python.org installer).
 import os
 import re
+import sys
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 VERSION = re.search(r'__version__ = "([^"]+)"',
@@ -26,24 +28,26 @@ exe = EXE(
     exclude_binaries=True,
     name="IP Scanner",
     console=False,
+    icon=os.path.join(SPECPATH, "icon.ico") if sys.platform == "win32" else None,
     target_arch=os.environ.get("TARGET_ARCH") or None,
     codesign_identity=os.environ.get("CODESIGN_IDENTITY") or None,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="IP Scanner")
-app = BUNDLE(
-    coll,
-    name="IP Scanner.app",
-    icon=os.path.join(SPECPATH, "icon.icns"),
-    bundle_identifier="com.rickkollins.ipscanner",
-    version=VERSION,
-    info_plist={
-        "CFBundleDisplayName": "IP Scanner",
-        "CFBundleShortVersionString": VERSION,
-        "CFBundleVersion": VERSION,
-        "LSMinimumSystemVersion": "11.0",
-        "NSHighResolutionCapable": True,
-        "NSLocalNetworkUsageDescription":
-            "IP Scanner probes devices on your local network to find alive "
-            "hosts and open ports.",
-    },
-)
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="IP Scanner.app",
+        icon=os.path.join(SPECPATH, "icon.icns"),
+        bundle_identifier="com.rickkollins.ipscanner",
+        version=VERSION,
+        info_plist={
+            "CFBundleDisplayName": "IP Scanner",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
+            "LSMinimumSystemVersion": "11.0",
+            "NSHighResolutionCapable": True,
+            "NSLocalNetworkUsageDescription":
+                "IP Scanner probes devices on your local network to find alive "
+                "hosts and open ports.",
+        },
+    )
