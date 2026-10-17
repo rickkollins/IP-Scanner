@@ -24,11 +24,12 @@ import struct
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 # Port -> service name. These are all checked by default.
 SERVICES: dict[int, str] = {
@@ -80,6 +81,9 @@ DEFAULT_PORTS = tuple(SERVICES)
 MAX_HOSTS = 65536
 
 IS_MAC = sys.platform == "darwin"
+IS_WINDOWS = sys.platform == "win32"
+# Windowed apps on Windows would flash a console for every command they run.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # Inside the bundled app (PyInstaller) data files live in sys._MEIPASS.
 HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -106,7 +110,7 @@ def service_name(port: int) -> str:
 
 # How to open each service (used for double-click in the app and the report).
 HTTPS_PORTS = {443, 5001, 8443}
-URL_SCHEMES = {21: "ftp", 22: "ssh", 445: "smb", 548: "afp", 5900: "vnc"}
+URL_SCHEMES = {21: "ftp", 22: "ssh", 445: "smb", 548: "afp", 3389: "rdp", 5900: "vnc"}
 
 
 def service_url(ip: str, port: int) -> str | None:
@@ -128,7 +132,8 @@ def service_url(ip: str, port: int) -> str | None:
 def _run(cmd: list[str], timeout: float = 5.0) -> str:
     try:
         return subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout
+            cmd, capture_output=True, text=True, timeout=timeout,
+            creationflags=NO_WINDOW, errors="replace",
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -156,7 +161,70 @@ def parse_ip_addr(output: str) -> list[ipaddress.IPv4Interface]:
     ]
 
 
+@dataclass
+class Adapter:
+    interface: ipaddress.IPv4Interface
+    mac: str = ""
+    gateway: bool = False  # has a default gateway (the "real" network)
+
+
+# PowerShell output is the same in every Windows display language, unlike
+# ipconfig's, so it is used to list the adapters.
+_WINDOWS_ADAPTERS_PS = (
+    "$r = @(Get-NetIPConfiguration | ForEach-Object { $c = $_; "
+    "foreach ($a in @($c.IPv4Address)) { if ($a) { [pscustomobject]@{ "
+    "ip = $a.IPAddress; prefix = [int]$a.PrefixLength; "
+    "mac = [string]$c.NetAdapter.MacAddress; gw = [bool]$c.IPv4DefaultGateway "
+    "} } } }); ConvertTo-Json -Compress -InputObject $r"
+)
+
+
+def parse_windows_adapters(text: str) -> list[Adapter]:
+    import json
+    try:
+        data = json.loads(text or "[]")
+    except ValueError:
+        return []
+    if isinstance(data, dict):
+        data = [data]
+    out = []
+    for item in data:
+        try:
+            iface = ipaddress.IPv4Interface(f"{item['ip']}/{int(item['prefix'])}")
+        except (KeyError, TypeError, ValueError):
+            continue
+        mac = (item.get("mac") or "").lower().replace("-", ":")
+        out.append(Adapter(iface, mac if mac.count(":") == 5 else "", bool(item.get("gw"))))
+    return out
+
+
+_ADAPTER_CACHE: tuple[float, list[Adapter]] = (0.0, [])
+
+
+def _windows_adapters() -> list[Adapter]:
+    global _ADAPTER_CACHE
+    stamp, cached = _ADAPTER_CACHE
+    if time.monotonic() - stamp < 10:
+        return cached
+    adapters = parse_windows_adapters(_run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_ADAPTERS_PS],
+        timeout=20))
+    if not adapters:
+        # Fallback: the address used for outgoing traffic, assumed to be a /24.
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("192.0.2.1", 9))  # no packet is sent for UDP connect
+                adapters = [Adapter(ipaddress.IPv4Interface(f"{s.getsockname()[0]}/24"),
+                                    gateway=True)]
+        except OSError:
+            adapters = []
+    _ADAPTER_CACHE = (time.monotonic(), adapters)
+    return adapters
+
+
 def _interfaces() -> list[ipaddress.IPv4Interface]:
+    if IS_WINDOWS:
+        return [a.interface for a in _windows_adapters()]
     if shutil.which("ifconfig") and (IS_MAC or not shutil.which("ip")):
         return parse_ifconfig(_run(["ifconfig"]))
     return parse_ip_addr(_run(["ip", "-o", "-4", "addr", "show"]))
@@ -165,7 +233,12 @@ def _interfaces() -> list[ipaddress.IPv4Interface]:
 def detect_local_networks() -> list[ipaddress.IPv4Network]:
     """Return the IPv4 networks this machine is directly attached to."""
     networks = []
-    for iface in _interfaces():
+    interfaces = _interfaces()
+    if IS_WINDOWS:
+        # Skip virtual adapters (Hyper-V, WSL, VPN) when a real network exists.
+        with_gw = [a.interface for a in _windows_adapters() if a.gateway]
+        interfaces = with_gw or interfaces
+    for iface in interfaces:
         ip = iface.ip
         if ip.is_loopback or ip.is_link_local or iface.network.prefixlen >= 31:
             continue
@@ -244,7 +317,12 @@ def parse_ports(spec: str) -> list[int]:
 # --------------------------------------------------------------------------
 
 def flush_commands() -> list[list[str]]:
-    """Commands that wipe the ARP and DNS caches (they need root)."""
+    """Commands that wipe the ARP and DNS caches (they need root/admin)."""
+    if IS_WINDOWS:
+        return [
+            ["netsh", "interface", "ip", "delete", "arpcache"],
+            ["ipconfig", "/flushdns"],
+        ]
     if IS_MAC:
         return [
             ["arp", "-a", "-d"],
@@ -265,6 +343,8 @@ def flush_caches(gui: bool = False) -> tuple[bool, str]:
     sudo (which prompts in the terminal).
     """
     cmds = flush_commands()
+    if IS_WINDOWS:
+        return _flush_windows(cmds)
     shell = "; ".join(" ".join(c) for c in cmds)
     try:
         if os.geteuid() == 0:
@@ -292,11 +372,86 @@ def flush_caches(gui: bool = False) -> tuple[bool, str]:
     return False, "Caches not cleared (administrator access was declined)."
 
 
+def _is_windows_admin() -> bool:
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except (AttributeError, OSError):
+        return False
+
+
+def _flush_windows(cmds: list[list[str]]) -> tuple[bool, str]:
+    """Run the flush commands, asking for admin rights with the UAC prompt."""
+    try:
+        if _is_windows_admin():
+            for c in cmds:
+                subprocess.run(c, capture_output=True, timeout=30, creationflags=NO_WINDOW)
+            return True, "ARP and DNS caches cleared."
+        # The DNS cache can be cleared without admin rights; the ARP cache can't.
+        subprocess.run(["ipconfig", "/flushdns"], capture_output=True, timeout=30,
+                       creationflags=NO_WINDOW)
+        inner = " & ".join(" ".join(c) for c in cmds)
+        script = (f"Start-Process -FilePath cmd.exe -ArgumentList '/c {inner}' "
+                  "-Verb RunAs -WindowStyle Hidden -Wait")
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                           capture_output=True, text=True, timeout=300, creationflags=NO_WINDOW)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, f"Could not clear caches: {e}"
+    if r.returncode == 0:
+        return True, "ARP and DNS caches cleared."
+    return False, "DNS cache cleared; ARP cache not cleared (administrator access was declined)."
+
+
 # --------------------------------------------------------------------------
 # Probing
 # --------------------------------------------------------------------------
 
+def _windows_ping(ip: str, timeout_ms: int) -> bool:
+    """ICMP echo through the Windows API: no admin rights, no ping.exe windows."""
+    import ctypes
+    from ctypes import wintypes
+
+    class IP_OPTION_INFORMATION(ctypes.Structure):
+        _fields_ = [("Ttl", ctypes.c_ubyte), ("Tos", ctypes.c_ubyte),
+                    ("Flags", ctypes.c_ubyte), ("OptionsSize", ctypes.c_ubyte),
+                    ("OptionsData", ctypes.c_void_p)]
+
+    class ICMP_ECHO_REPLY(ctypes.Structure):
+        _fields_ = [("Address", wintypes.ULONG), ("Status", wintypes.ULONG),
+                    ("RoundTripTime", wintypes.ULONG), ("DataSize", wintypes.USHORT),
+                    ("Reserved", wintypes.USHORT), ("Data", ctypes.c_void_p),
+                    ("Options", IP_OPTION_INFORMATION)]
+
+    iphlpapi = ctypes.WinDLL("iphlpapi")
+    iphlpapi.IcmpCreateFile.restype = wintypes.HANDLE
+    iphlpapi.IcmpSendEcho.argtypes = [wintypes.HANDLE, wintypes.ULONG, ctypes.c_void_p,
+                                      wintypes.WORD, ctypes.c_void_p, ctypes.c_void_p,
+                                      wintypes.DWORD, wintypes.DWORD]
+    iphlpapi.IcmpCloseHandle.argtypes = [wintypes.HANDLE]
+    handle = iphlpapi.IcmpCreateFile()
+    if not handle or handle == wintypes.HANDLE(-1).value:
+        return False
+    try:
+        payload = b"IPScanner"
+        size = ctypes.sizeof(ICMP_ECHO_REPLY) + len(payload) + 8
+        reply = ctypes.create_string_buffer(size)
+        addr = struct.unpack("<I", socket.inet_aton(ip))[0]
+        n = iphlpapi.IcmpSendEcho(handle, addr, payload, len(payload), None,
+                                  reply, size, timeout_ms)
+        if n == 0:
+            return False
+        echo = ICMP_ECHO_REPLY.from_buffer_copy(reply)
+        return echo.Status == 0 and echo.Address == addr  # IP_SUCCESS from the host
+    finally:
+        iphlpapi.IcmpCloseHandle(handle)
+
+
 def ping(ip: str, timeout_ms: int = 1000) -> bool:
+    if IS_WINDOWS:
+        try:
+            return _windows_ping(ip, timeout_ms)
+        except OSError:
+            return False
     if IS_MAC:
         cmd = ["ping", "-c", "1", "-W", str(timeout_ms), "-q", ip]
     else:
@@ -325,20 +480,40 @@ def check_port(ip: str, port: int, timeout: float = 1.0) -> tuple[bool, bool]:
             return False, False
     if err == 0:
         return True, True
-    # ECONNREFUSED: 61 on macOS, 111 on Linux
-    return False, err in (61, 111)
+    # ECONNREFUSED: 61 on macOS, 111 on Linux, 10061 on Windows
+    return False, err in (61, 111, 10061)
+
+
+def _is_unicast(mac: str) -> bool:
+    # The lowest bit of the first octet marks broadcast/multicast addresses.
+    return not int(mac.split(":")[0], 16) & 0x01
+
+
+def parse_windows_arp(output: str) -> dict[str, str]:
+    """Parse Windows `arp -a` output (any language)."""
+    table = {}
+    for m in re.finditer(r"(\d+\.\d+\.\d+\.\d+)\s+((?:[0-9a-fA-F]{2}-){5}[0-9a-fA-F]{2})",
+                         output):
+        mac = m.group(2).lower().replace("-", ":")
+        if _is_unicast(mac):
+            table[m.group(1)] = mac
+    return table
 
 
 def arp_table() -> dict[str, str]:
     """IP -> MAC from the system ARP cache."""
+    if IS_WINDOWS:
+        return parse_windows_arp(_run(["arp", "-a"]))
     table = {}
     for m in re.finditer(
         r"\((\d+\.\d+\.\d+\.\d+)\) at ([0-9a-fA-F:]+)", _run(["arp", "-an"])
     ):
         ip, mac = m.groups()
-        if mac.count(":") == 5 and mac.lower() != "ff:ff:ff:ff:ff:ff":
+        if mac.count(":") == 5:
             # macOS drops leading zeros (e.g. 0:1a:...), normalise them.
-            table[ip] = ":".join(part.zfill(2) for part in mac.lower().split(":"))
+            mac = ":".join(part.zfill(2) for part in mac.lower().split(":"))
+            if _is_unicast(mac):
+                table[ip] = mac
     if not table and shutil.which("ip"):
         for m in re.finditer(
             r"(\d+\.\d+\.\d+\.\d+) .*lladdr ([0-9a-f:]{17})",
@@ -350,6 +525,8 @@ def arp_table() -> dict[str, str]:
 
 def local_macs() -> dict[str, str]:
     """IP -> MAC for this machine's own interfaces (not in the ARP cache)."""
+    if IS_WINDOWS:
+        return {str(a.interface.ip): a.mac for a in _windows_adapters() if a.mac}
     out = {}
     if IS_MAC or not shutil.which("ip"):
         blocks = re.split(r"\n(?=\S)", _run(["ifconfig"]))
@@ -424,6 +601,66 @@ def netbios_name(ip: str, timeout: float = 1.0) -> str:
     return ""
 
 
+def _read_dns_name(data: bytes, offset: int) -> tuple[str, int]:
+    """Decode a (possibly compressed) DNS name. Returns (name, next offset)."""
+    labels, jumped, end, hops = [], False, offset, 0
+    while True:
+        length = data[offset]
+        if length & 0xC0 == 0xC0:  # pointer
+            if not jumped:
+                end = offset + 2
+            offset = ((length & 0x3F) << 8) | data[offset + 1]
+            jumped = True
+            hops += 1
+            if hops > 20:
+                raise ValueError("DNS name loop")
+            continue
+        if length == 0:
+            if not jumped:
+                end = offset + 1
+            break
+        labels.append(data[offset + 1:offset + 1 + length].decode("utf-8", "replace"))
+        offset += 1 + length
+    return ".".join(labels), end
+
+
+def mdns_name(ip: str, timeout: float = 1.0) -> str:
+    """Bonjour/mDNS name (e.g. "NAS.local") via a reverse query sent to the host.
+
+    Apple devices, printers, NAS boxes and Linux machines with Avahi answer
+    these. Pure Python, so it works the same on macOS and Windows.
+    """
+    tid = os.urandom(2)
+    qname = b"".join(bytes([len(p)]) + p.encode() for p in
+                     list(reversed(ip.split("."))) + ["in-addr", "arpa"]) + b"\x00"
+    packet = (tid + b"\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00" + qname
+              + b"\x00\x0c\x00\x01")  # PTR, IN
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.settimeout(timeout)
+        try:
+            s.sendto(packet, (ip, 5353))
+            data, _ = s.recvfrom(4096)
+        except OSError:
+            return ""
+    try:
+        qd, an = struct.unpack(">HH", data[4:8])
+        offset = 12
+        for _ in range(qd):
+            _, offset = _read_dns_name(data, offset)
+            offset += 4
+        for _ in range(an):
+            _, offset = _read_dns_name(data, offset)
+            rtype, _, _, rdlen = struct.unpack(">HHIH", data[offset:offset + 10])
+            offset += 10
+            if rtype == 12:  # PTR
+                name, _ = _read_dns_name(data, offset)
+                return name.rstrip(".")
+            offset += rdlen
+    except (IndexError, struct.error, ValueError):
+        pass
+    return ""
+
+
 def resolve_hostname(ip: str) -> str:
     """Reverse DNS, then Bonjour/mDNS, then NetBIOS."""
     try:
@@ -432,17 +669,7 @@ def resolve_hostname(ip: str) -> str:
             return name.rstrip(".")
     except (OSError, UnicodeError):
         pass
-    if shutil.which("dig"):
-        out = _run(
-            ["dig", "+short", "+time=1", "+tries=1", "-p", "5353",
-             "@224.0.0.251", "-x", ip],
-            timeout=3,
-        ).strip()
-        for line in out.splitlines():
-            line = line.strip()
-            if line and not line.startswith(";"):
-                return line.rstrip(".")
-    return netbios_name(ip)
+    return mdns_name(ip) or netbios_name(ip)
 
 
 # --------------------------------------------------------------------------

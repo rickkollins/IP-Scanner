@@ -1,12 +1,32 @@
 # IP Scanner
 
-A macOS network scanner styled after Advanced IP Scanner. It finds every alive IPv4 device on
+A network scanner for **macOS and Windows 10/11**, styled after Advanced IP Scanner. It finds every alive IPv4 device on
 your network and lists each one's **name**, **IP**, **manufacturer**, **MAC address** and
 **open services**. Expand a device to see its services, and double-click one to open it.
 
 The scanning code uses only built-in Python, so there is nothing to `pip install`.
 
-## Install from the DMG (easiest)
+## Install on Windows 10/11
+
+1. Download **IP-Scanner-Setup-x.y.z.exe** from the repo's
+   [Releases](https://github.com/rickkollins/IP-Scanner/releases) page.
+2. Run it. If **Windows protected your PC** appears, click **More info**, then **Run anyway**.
+   This happens because the installer isn't code-signed. No administrator rights are needed.
+3. Start **IP Scanner** from the Start menu (or the desktop shortcut, if you ticked it).
+
+Prefer not to install? Download **IP-Scanner-Windows-Portable-x.y.z.zip**, unzip it anywhere and
+run `IP Scanner.exe`. To uninstall, use **Settings → Apps → Installed apps → IP Scanner →
+Uninstall**.
+
+**Clearing the caches** (on by default) shows a **User Account Control** prompt before each scan,
+because clearing the ARP cache needs admin rights. Click **Yes**, or untick
+**Clear ARP & DNS cache before scan** to skip it.
+
+**Building the installer yourself:** install [Python](https://www.python.org/downloads/) and
+[Inno Setup 6](https://jrsoftware.org/isdl.php), then run `.\make_installer.ps1` in PowerShell
+from the repository folder. It creates `dist\IP-Scanner-Setup-<version>.exe`.
+
+## Install on a Mac from the DMG (easiest)
 
 The DMG contains a self-contained **IP Scanner.app** with Python built in, so you don't need to
 install Python, Git or anything else. It runs on both Apple silicon and Intel Macs.
@@ -33,7 +53,7 @@ cd ~/IP-Scanner && ./make_dmg.sh
 This creates `dist/IP-Scanner-<version>.dmg` and shows it in Finder. A DMG you build yourself
 opens without the "cannot verify" step. The app icon comes from `packaging/icon.icns`; to change
 it, edit `packaging/make_icon.py` and run it (needs `pip install pillow`). GitHub also builds the DMG automatically on every push:
-open the repo's **Actions** tab, click the latest **Build DMG** run, and download
+open the repo's **Actions** tab, click the latest **Build** run, and download
 **IP-Scanner-dmg** under *Artifacts*. When `main` gets a new version number (`__version__` in
 `scanner.py`), GitHub publishes the DMG as a release automatically.
 
@@ -95,7 +115,7 @@ Drag **IP Scanner** from Applications to the Trash, then run `rm -rf ~/IP-Scanne
    type ranges (`10.0.0.1-50`, `10.0.0.1-10.0.1.255`), subnets (`10.0.0.0/24`) or single IPs,
    separated by commas. **My network** fills in your current network again. The limit is
    65,536 addresses (a /16).
-2. Press **Scan** (⌘R). Devices appear as they're found. The status bar shows
+2. Press **Scan** (⌘R on a Mac, Ctrl+R on Windows). Devices appear as they're found. The status bar shows
    *N alive, M dead*.
 3. Click a column heading to sort, and use **Search** to filter by name, IP, maker, MAC or
    service.
@@ -103,15 +123,17 @@ Drag **IP Scanner** from Applications to the Trash, then run `rm -rf ~/IP-Scanne
    to open every device at once (click again for **Collapse All**). While Expand All is on,
    newly found devices appear expanded too. **Double-click** a service to open it:
    web ports open in your browser, SSH opens Terminal, SMB/AFP open Finder, and VNC opens
-   Screen Sharing.
+   Screen Sharing. On Windows: SSH opens in a console window, SMB shares open in File Explorer,
+   and RDP (port 3389) opens Remote Desktop Connection.
 5. **Right-click** a device to open a service, copy its IP, name or MAC, or rescan just that
    device.
-6. **File → Export CSV…** (⌘E) saves the list.
+6. **File → Export CSV…** (⌘E / Ctrl+E) saves the list.
 
 ### Printing
 
-Click **Print…** in the toolbar (or **File → Print…**, ⌘P). The app builds a **landscape table**
-of the results and opens it in Preview. Press **⌘P** in Preview to choose a printer and print.
+Click **Print…** in the toolbar (or **File → Print…**, ⌘P / Ctrl+P). The app builds a
+**landscape table** of the results and opens it in Preview on a Mac, or in your PDF viewer on
+Windows (usually Edge). Press **⌘P** or **Ctrl+P** there to choose a printer and print.
 
 - The report uses the same columns as the app: #, Name, IP, Manufacturer, MAC address and
   Comments. Every device is shown **expanded**: below it, each open service gets its own row with
@@ -121,8 +143,8 @@ of the results and opens it in Preview. Press **⌘P** in Preview to choose a pr
 - The header shows the range scanned, the date, how many hosts were alive and which ports were
   checked. Long reports continue onto more pages, with the column headings and page numbers
   repeated on each page. A device and its services are kept on the same page where possible.
-- Paper size is US Letter, or A4 if your Mac is set to metric units (System Settings → General →
-  Language & Region).
+- Paper size comes from your region settings: A4 or US Letter (Mac: System Settings → General →
+  Language & Region; Windows: the region format).
 - **File → Save as PDF…** saves the same report to a file instead.
 
 ## Ports checked
@@ -149,11 +171,13 @@ All of these are checked by default. You can edit the **Ports** box, which accep
 
 ## How a scan works
 
-1. **Clear caches** (optional, on by default): wipes the ARP cache (`arp -a -d`) and the DNS
-   cache (`dscacheutil -flushcache`, `killall -HUP mDNSResponder`). Without this, devices that
+1. **Clear caches** (optional, on by default): wipes the ARP cache and the DNS cache. On a Mac
+   that's `arp -a -d`, `dscacheutil -flushcache` and `killall -HUP mDNSResponder`. On Windows it's
+   `netsh interface ip delete arpcache` and `ipconfig /flushdns`. Without this, devices that
    have left the network can still show up as alive, and renamed devices can keep their old
    names.
-2. **Discovery**: pings every address, 128 at a time. The pings also refill the ARP cache, so
+2. **Discovery**: pings every address, 128 at a time. On Windows this uses the built-in ICMP
+   API, so no `ping.exe` windows flash up. The pings also refill the ARP cache, so
    devices that ignore ping but answer ARP (firewalled Macs, Windows PCs) are found as well.
 3. **Ports**: every port on every alive device is checked in parallel.
 4. **Names**: reverse DNS first, then Bonjour/mDNS (`name.local`), then NetBIOS (Windows

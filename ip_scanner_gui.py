@@ -347,9 +347,31 @@ class App:
 
     def open_url(self, url: str) -> None:
         if scanner.IS_MAC:
+            if url.startswith("rdp://"):
+                # Format used by Microsoft's "Windows App" for Mac.
+                url = "rdp://full%20address=s:" + url[len("rdp://"):]
             subprocess.Popen(["open", url])
+        elif scanner.IS_WINDOWS:
+            self._open_windows(url)
         else:
             webbrowser.open(url)
+
+    def _open_windows(self, url: str) -> None:
+        scheme, _, rest = url.partition("://")
+        host = rest.split("/")[0].split(":")[0]
+        try:
+            if scheme == "ssh":   # Windows 10/11 include the OpenSSH client
+                subprocess.Popen(["cmd", "/c", "start", "", "ssh", host])
+            elif scheme == "smb":  # the shares in File Explorer
+                os.startfile(f"\\\\{host}")
+            elif scheme == "rdp":
+                subprocess.Popen(["mstsc", f"/v:{host}"])
+            else:
+                os.startfile(url)
+        except OSError:
+            messagebox.showinfo("IP Scanner", f"No app on this PC opens {scheme}:// links.\n"
+                                              f"Address copied to the clipboard: {host}")
+            self.copy(host)
 
     def update_counts(self) -> None:
         alive = len(self.results)
@@ -519,6 +541,9 @@ class App:
         if scanner.IS_MAC:
             subprocess.Popen(["open", "-a", "Preview", path])
             self.status.set("Report opened in Preview. Press ⌘P there to print.")
+        elif scanner.IS_WINDOWS:
+            os.startfile(path)
+            self.status.set("Report opened in your PDF viewer. Press Ctrl+P there to print.")
         else:
             webbrowser.open("file://" + path)
             self.status.set(f"Report opened: {path}")
@@ -539,12 +564,51 @@ class App:
         self.root.destroy()
 
 
-def main() -> None:
-    root = tk.Tk()
+def self_test(report_path: str) -> int:
+    """Checks the packaged app without a window: network detection, ping,
+    ARP, port checks, vendor list and the PDF report. Used by the build."""
+    import traceback
+    lines, ok = [f"IP Scanner {scanner.__version__} self-test"], False
     try:
-        ttk.Style().theme_use("aqua")
-    except tk.TclError:
-        ttk.Style().theme_use("clam")
+        nets = scanner.detect_local_networks()
+        lines.append(f"networks: {[str(n) for n in nets]}")
+        lines.append(f"local MACs: {scanner.local_macs()}")
+        lines.append(f"ping 127.0.0.1: {scanner.ping('127.0.0.1')}")
+        lines.append(f"arp entries: {len(scanner.arp_table())}")
+        vendor = scanner.vendor_for_mac("f0:d1:a9:00:00:01")
+        lines.append(f"vendor lookup: {vendor!r}")
+        path = os.path.join(tempfile.gettempdir(), "ip-scanner-self-test.pdf")
+        host = scanner.HostResult(ip="127.0.0.1", hostname="localhost", ports={80: True})
+        report.build_pdf([host], path, scanned="127.0.0.1", total=1, ports=[80])
+        lines.append(f"pdf: {os.path.getsize(path)} bytes")
+        root = tk.Tk()
+        root.withdraw()
+        root.destroy()
+        lines.append("tk: ok")
+        ok = bool(nets) and scanner.ping("127.0.0.1") and vendor == "Apple, Inc."
+    except Exception:
+        lines.append(traceback.format_exc())
+    lines.append(f"result: {'PASS' if ok else 'FAIL'}")
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return 0 if ok else 1
+
+
+def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
+        sys.exit(self_test(sys.argv[2]))
+    if scanner.IS_WINDOWS:
+        try:  # sharp text on high-DPI screens
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (AttributeError, OSError):
+            pass
+    root = tk.Tk()
+    style = ttk.Style()
+    for theme in ("aqua", "vista", "clam"):
+        if theme in style.theme_names():
+            style.theme_use(theme)
+            break
     try:
         # Dock and window icon (the .app bundle also sets it for Finder).
         icon = tk.PhotoImage(file=os.path.join(scanner.HERE, "data", "icon.png"))

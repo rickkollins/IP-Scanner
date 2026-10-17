@@ -1,6 +1,7 @@
 """Draws the IP Scanner app icon: a radar sweep over network devices.
 
-Writes packaging/icon.icns (for the .app) and data/icon.png (window icon).
+Writes packaging/icon.icns (macOS app), packaging/icon.ico (Windows app)
+and data/icon.png (window icon).
 Needs Pillow, only when regenerating:  python3 packaging/make_icon.py
 """
 
@@ -126,7 +127,11 @@ def main() -> None:
               sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256),
                      (512, 512), (1024, 1024)])
     icon.resize((256, 256), Image.LANCZOS).save(os.path.join(ROOT, "data", "icon.png"))
-    print("Wrote packaging/icon.icns and data/icon.png")
+    # Windows icons fill their square, so crop away the macOS margin.
+    icon.crop((88, 88, 936, 936)).resize((256, 256), Image.LANCZOS).save(
+        os.path.join(ROOT, "packaging", "icon.ico"),
+        sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    print("Wrote packaging/icon.icns, packaging/icon.ico and data/icon.png")
 
 
 if __name__ == "__main__":

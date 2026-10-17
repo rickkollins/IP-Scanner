@@ -63,8 +63,22 @@ def wrap(text: str, width: float, size: float) -> list[str]:
     return lines
 
 
+def _windows_paper() -> str:
+    """Paper size from the Windows region settings ("1" = Letter, "9" = A4)."""
+    try:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(8)
+        if ctypes.windll.kernel32.GetLocaleInfoEx(None, 0x100A, buf, 8):  # LOCALE_IPAPERSIZE
+            return "letter" if buf.value in ("1", "5") else "a4"
+    except (AttributeError, OSError):
+        pass
+    return "letter"
+
+
 def default_paper() -> str:
-    """A4 when macOS is set to metric units, otherwise US Letter."""
+    """The paper size from the computer's region settings: A4 or US Letter."""
+    if scanner.IS_WINDOWS:
+        return _windows_paper()
     out = ""
     if scanner.IS_MAC:
         try:
