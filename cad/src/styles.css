@@ -31,6 +31,21 @@
   --shadow: 0 8px 28px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
   color-scheme: dark;
 }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+  --bg: #13161c;
+  --panel: #1d222b;
+  --panel-2: #232934;
+  --line: #313947;
+  --text: #e3e8f0;
+  --muted: #95a1b3;
+  --accent: #4b8fff;
+  --accent-soft: #1f3354;
+  --accent-text: #8db7ff;
+  --shadow: 0 8px 28px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
+  color-scheme: dark;
+}
+}
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font: 13px/1.4 var(--font); }
@@ -252,6 +267,11 @@ button, input, select { font: inherit; color: inherit; }
 @media (max-width: 1560px) {
   #toolbar .tbtn:not(.primary) > span { display: none; }
 }
+
+dialog.confirm { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); padding: 18px 20px; max-width: min(420px, calc(100vw - 32px)); box-shadow: var(--shadow); }
+dialog.confirm::backdrop { background: rgba(10, 16, 28, .35); }
+dialog.confirm p { margin: 0 0 16px; }
+dialog.confirm .row { justify-content: flex-end; }
 
 /* --- narrow screens -------------------------------------------------------------------------- */
 @media (max-width: 900px) {

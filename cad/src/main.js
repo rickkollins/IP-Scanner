@@ -9,13 +9,27 @@ async function main() {
   document.querySelector('#help').innerHTML = icon('help', 18);
   document.querySelector('#theme').innerHTML = icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon', 18);
   try {
-    await initKernel({ locateFile: () => wasmUrl });
+    // The single-file build inlines the kernel as a data: URL; hand the bytes
+    // over directly so no fetch is needed (some hosts block fetching data: URLs).
+    if (wasmUrl.startsWith('data:')) {
+      const bin = atob(wasmUrl.slice(wasmUrl.indexOf(',') + 1));
+      const wasmBinary = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) wasmBinary[i] = bin.charCodeAt(i);
+      await initKernel({ wasmBinary });
+    } else {
+      await initKernel({ locateFile: () => wasmUrl });
+    }
   } catch (e) {
     document.querySelector('#loading').textContent = `Could not start the geometry kernel: ${e.message}`;
     return;
   }
   const app = new App(document.querySelector('#app'));
   window.forge = app; // handy for debugging from the console
+  // Follow theme changes made by a hosting page as well as our own toggle.
+  new MutationObserver(() => {
+    app.viewport.applyTheme();
+    document.querySelector('#theme').innerHTML = icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon', 18);
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   document.querySelector('#loading').remove();
 
   const welcome = document.querySelector('#welcome');

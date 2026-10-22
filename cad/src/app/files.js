@@ -7,7 +7,34 @@ import { manifoldFromMesh, meshFromManifold } from '../core/kernel.js';
 
 export const MESH_EXTENSIONS = ['stl', 'obj', 'ply'];
 
-export function download(data, filename, type = 'application/octet-stream') {
+// Formats the claude.ai artifact viewer can save directly; anything else is
+// delivered inside a .zip there.
+const VIEWER_SAVE_EXTENSIONS = ['json', 'txt', 'zip'];
+
+/**
+ * Save a file. Inside the claude.ai artifact viewer this goes through its
+ * download prompt; in a normal browser it is a plain download.
+ * Resolves true when the file was handed over.
+ */
+export async function download(data, filename, type = 'application/octet-stream') {
+  let downloads = null;
+  try { downloads = window.parent !== window ? await window.claude?.use?.('downloads') : null; } catch { downloads = null; }
+  if (downloads) {
+    let name = filename;
+    let payload = data instanceof Blob ? new Uint8Array(await data.arrayBuffer()) : data;
+    if (!VIEWER_SAVE_EXTENSIONS.includes(filename.split('.').pop().toLowerCase())) {
+      const bytes = typeof payload === 'string' ? new TextEncoder().encode(payload) : new Uint8Array(payload instanceof ArrayBuffer ? payload : payload.buffer);
+      payload = zipStore([{ name: filename, data: bytes }]);
+      name = `${filename}.zip`;
+    }
+    try {
+      await downloads.save({ filename: name, data: payload });
+      return true;
+    } catch (e) {
+      if (e?.code === 'declined') return false;
+      throw new Error(`Could not save ${name}${e?.message ? `: ${e.message}` : ''}`);
+    }
+  }
   const blob = data instanceof Blob ? data : new Blob([data], { type });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -16,6 +43,67 @@ export function download(data, filename, type = 'application/octet-stream') {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  return true;
+}
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/** Minimal uncompressed ("stored") zip archive. */
+export function zipStore(files) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const crc = crc32(f.data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(4, 20, true);
+    local.setUint16(8, 0, true);
+    local.setUint32(14, crc, true);
+    local.setUint32(18, f.data.length, true);
+    local.setUint32(22, f.data.length, true);
+    local.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(local.buffer), name, f.data);
+    const cen = new DataView(new ArrayBuffer(46));
+    cen.setUint32(0, 0x02014b50, true);
+    cen.setUint16(4, 20, true);
+    cen.setUint16(6, 20, true);
+    cen.setUint32(16, crc, true);
+    cen.setUint32(20, f.data.length, true);
+    cen.setUint32(24, f.data.length, true);
+    cen.setUint16(28, name.length, true);
+    cen.setUint32(42, offset, true);
+    central.push(new Uint8Array(cen.buffer), name);
+    offset += 30 + name.length + f.data.length;
+  }
+  const cenSize = central.reduce((n, p) => n + p.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, cenSize, true);
+  end.setUint32(16, offset, true);
+  const all = [...parts, ...central, new Uint8Array(end.buffer)];
+  const out = new Uint8Array(all.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of all) { out.set(p, o); o += p.length; }
+  return out;
 }
 
 export function pickFiles(accept, multiple = false) {
@@ -103,9 +191,9 @@ export async function exportBodies(bodies, format, baseName) {
   if (!bodies.length) throw new Error('There is nothing to export');
   const meshes = bodyMeshes(bodies);
   const name = (baseName || 'model').replace(/[^\w\- ]+/g, '').trim() || 'model';
-  if (format === 'stl') download(writeBinarySTL(meshes), `${name}.stl`, 'model/stl');
-  else if (format === 'stl-ascii') download(writeAsciiSTL(meshes), `${name}.stl`, 'model/stl');
-  else if (format === 'obj') download(writeOBJ(meshes), `${name}.obj`, 'text/plain');
+  if (format === 'stl') return download(writeBinarySTL(meshes), `${name}.stl`, 'model/stl');
+  else if (format === 'stl-ascii') return download(writeAsciiSTL(meshes), `${name}.stl`, 'model/stl');
+  else if (format === 'obj') return download(writeOBJ(meshes), `${name}.obj`, 'text/plain');
   else if (format === 'glb') {
     const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
     const scene = new THREE.Scene();
@@ -120,7 +208,7 @@ export async function exportBodies(bodies, format, baseName) {
       scene.add(mesh);
     });
     const glb = await new GLTFExporter().parseAsync(scene, { binary: true });
-    download(glb, `${name}.glb`, 'model/gltf-binary');
+    return download(glb, `${name}.glb`, 'model/gltf-binary');
   }
 }
 

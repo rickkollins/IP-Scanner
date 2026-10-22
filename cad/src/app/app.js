@@ -1195,13 +1195,29 @@ export class App {
 
   // --- files ----------------------------------------------------------------------------------------
 
-  newProject() {
-    if (this.doc.features.length && !confirm('Start a new project? Unsaved changes will be lost (your last project stays in the autosave until you change the new one).')) return;
+  /** In-page confirmation (browser confirm() is unavailable in some hosts). */
+  askConfirm(message, okLabel) {
+    return new Promise((resolve) => {
+      const dlg = document.createElement('dialog');
+      dlg.className = 'confirm';
+      dlg.innerHTML = `<p>${esc(message)}</p><div class="row"><button class="btn" data-no>Cancel</button><button class="btn primary" data-yes>${esc(okLabel)}</button></div>`;
+      document.body.appendChild(dlg);
+      const done = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+      dlg.querySelector('[data-yes]').onclick = () => done(true);
+      dlg.querySelector('[data-no]').onclick = () => done(false);
+      dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(false); });
+      dlg.showModal();
+      dlg.querySelector('[data-yes]').focus();
+    });
+  }
+
+  async newProject() {
+    if (this.doc.features.length && !(await this.askConfirm('Start a new project? Changes you have not saved to a project file will be lost.', 'Start new'))) return;
     this.setDocument(newDocument(), new Map());
   }
 
-  loadExample() {
-    if (this.doc.features.length && !confirm('Replace the current model with the example? Use File → Save project first to keep it.')) return;
+  async loadExample() {
+    if (this.doc.features.length && !(await this.askConfirm('Replace the current model with the example? Save your project first to keep it.', 'Load example'))) return;
     this.setDocument(exampleDocument(), new Map());
     this.toast('Loaded the example bracket. Double-click any feature to edit it.');
   }
@@ -1209,7 +1225,7 @@ export class App {
   async saveProject() {
     const text = serializeProject(this.doc, this.blobs);
     const name = `${(this.doc.name || 'model').replace(/[^\w\- ]+/g, '') || 'model'}.forge.json`;
-    if (window.showSaveFilePicker) {
+    if (window.showSaveFilePicker && window.parent === window) {
       try {
         const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: 'Forge CAD project', accept: { 'application/json': ['.json'] } }] });
         const w = await handle.createWritable();
@@ -1221,7 +1237,11 @@ export class App {
         if (e?.name === 'AbortError') return;
       }
     }
-    download(text, name, 'application/json');
+    try {
+      if (await download(text, name, 'application/json')) this.toast('Project saved');
+    } catch (e) {
+      this.toast(e.message, 'error');
+    }
   }
 
   async openProjectDialog() {
@@ -1279,8 +1299,7 @@ export class App {
     if (!bodies.length) bodies = [...this.state.bodies.values()].filter((b) => !this.doc.bodyProps[b.id]?.hidden);
     bodies = bodies.map((b) => ({ ...b, name: this.bodyName(b.id), color: this.bodyColor(b.id) }));
     try {
-      await exportBodies(bodies, format, bodies.length === 1 ? bodies[0].name : this.doc.name);
-      this.toast(`Exported ${bodies.length} part${bodies.length > 1 ? 's' : ''}`);
+      if (await exportBodies(bodies, format, bodies.length === 1 ? bodies[0].name : this.doc.name)) this.toast(`Exported ${bodies.length} part${bodies.length > 1 ? 's' : ''}`);
     } catch (e) {
       this.toast(e.message, 'error');
     }
