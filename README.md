@@ -1,5 +1,8 @@
 # IP Scanner
 
+> This repository also contains **Forge CAD**, a browser-based parametric 3D CAD modeler with
+> direct STL import. See [cad/README.md](cad/README.md).
+
 A network scanner for **macOS and Windows 10/11**, styled after Advanced IP Scanner. It finds every alive IPv4 device on
 your network and lists each one's **name**, **IP**, **manufacturer**, **MAC address** and
 **open services**. Expand a device to see its services, and double-click one to open it.

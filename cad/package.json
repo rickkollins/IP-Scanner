@@ -1,0 +1,23 @@
+{
+  "name": "forge-cad",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Browser-based parametric 3D CAD modeler with first-class STL import",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:single": "vite build --mode single",
+    "preview": "vite preview",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "manifold-3d": "^3.5.4",
+    "three": "^0.186.1",
+    "three-mesh-bvh": "^0.9.16"
+  },
+  "devDependencies": {
+    "vite": "^8.3.5",
+    "vite-plugin-singlefile": "^2.3.4"
+  }
+}

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forge CAD</title>
+  <meta name="description" content="Parametric 3D CAD modeling in the browser, with direct STL import as solid parts.">
+  <script>
+    try {
+      const t = localStorage.getItem('forge-theme');
+      document.documentElement.dataset.theme = t || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    } catch { document.documentElement.dataset.theme = 'light'; }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="brand"><span class="logo"></span><b>Forge</b>&nbsp;CAD</div>
+      <div class="dropdown" id="filemenu"><button class="tbtn file"><span>File</span></button><div class="menu"></div></div>
+      <nav id="toolbar"></nav>
+      <div class="topright">
+        <select id="quality" title="Curve quality">
+          <option value="draft">Draft</option>
+          <option value="normal" selected>Normal</option>
+          <option value="fine">Fine</option>
+        </select>
+        <button class="iconbtn" id="help" title="Help and shortcuts"></button>
+        <button class="iconbtn" id="theme" title="Light / dark theme"></button>
+      </div>
+    </header>
+
+    <aside id="sidebar">
+      <section class="panel features">
+        <h2>Features</h2>
+        <div id="tree"></div>
+      </section>
+      <section class="panel partsp">
+        <h2>Parts <span id="parts-count"></span></h2>
+        <div id="parts"></div>
+      </section>
+    </aside>
+
+    <main id="viewport">
+      <div id="viewbar"></div>
+      <div id="dialog" class="dialog" hidden></div>
+      <div id="info" class="floating" hidden></div>
+      <div id="measure-panel" class="floating" hidden></div>
+      <div id="section-panel" class="floating" hidden></div>
+      <div id="welcome" hidden>
+        <h1>Start a model</h1>
+        <p>Sketch on a plane and extrude, drop in a primitive, or import an STL as a solid part you can cut, join and drill.</p>
+        <div class="welcome-actions">
+          <button class="btn primary" data-w="sketch">New sketch</button>
+          <button class="btn" data-w="box">Add a box</button>
+          <button class="btn" data-w="import">Import STL…</button>
+          <button class="btn" data-w="example">Open the example</button>
+        </div>
+        <p class="hint">Tip: drag and drop STL, OBJ or PLY files anywhere on the view.</p>
+      </div>
+      <div id="loading">Starting the geometry kernel…</div>
+    </main>
+
+    <footer id="status"></footer>
+  </div>
+  <div id="toasts"></div>
+
+  <dialog id="helpdlg">
+    <header><h2>Forge CAD help</h2><button class="iconbtn" data-close aria-label="Close">✕</button></header>
+    <div class="helpcols">
+      <section>
+        <h3>Mouse</h3>
+        <dl>
+          <dt>Left-drag</dt><dd>Orbit</dd>
+          <dt>Right / middle-drag</dt><dd>Pan</dd>
+          <dt>Wheel</dt><dd>Zoom to cursor</dd>
+          <dt>Click</dt><dd>Select a part (Shift adds)</dd>
+          <dt>Double-click part</dt><dd>Edit the feature that made it</dd>
+          <dt>In a sketch</dt><dd>Left draws, middle orbits, right pans</dd>
+        </dl>
+        <h3>Workflow</h3>
+        <p>Every operation is a feature in the history on the left. Double-click a feature to change it; the model rebuilds. Drag the blue rollback bar to view the model at an earlier step, and insert features there. Right-click for suppress, reorder and delete.</p>
+        <p>When a dialog has a <b>Parts</b> box, click parts in the view (or the parts list) to add or remove them.</p>
+      </section>
+      <section>
+        <h3>Keyboard</h3>
+        <dl>
+          <dt>Shift+S / E / W / H</dt><dd>Sketch / Extrude / Revolve / Hole</dd>
+          <dt>M</dt><dd>Move / rotate (W / E switch gizmo)</dd>
+          <dt>Shift+M</dt><dd>Measure</dd>
+          <dt>Ctrl+Z / Ctrl+Shift+Z</dt><dd>Undo / redo</dd>
+          <dt>Ctrl+S / Ctrl+O / Ctrl+I</dt><dd>Save / open / import</dd>
+          <dt>F</dt><dd>Zoom to fit</dd>
+          <dt>0 1 3 7</dt><dd>Iso / front / right / top view</dd>
+          <dt>O</dt><dd>Perspective / orthographic</dd>
+          <dt>Delete</dt><dd>Delete selected parts or feature</dd>
+          <dt>Enter / Esc</dt><dd>Accept / cancel a dialog</dd>
+        </dl>
+        <h3>Sketch keys</h3>
+        <dl>
+          <dt>L R C A P S O</dt><dd>Line, rectangle, circle, arc, polygon, slot, point</dd>
+          <dt>Shift+R</dt><dd>Centre rectangle</dd>
+          <dt>X</dt><dd>Construction geometry</dd>
+          <dt>Type a number</dt><dd>Exact length, size or diameter while drawing</dd>
+        </dl>
+      </section>
+    </div>
+  </dialog>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
