@@ -6,6 +6,9 @@ your network and lists each one's **name**, **IP**, **manufacturer**, **MAC addr
 
 The scanning code uses only built-in Python, so there is nothing to `pip install`.
 
+**Also in this repo:** [System Monitor](system_monitor/README.md), a small Mac app that shows
+live memory and disk usage.
+
 ## Install on Windows 10/11
 
 1. Download **IP-Scanner-Setup-x.y.z.exe** from the repo's
