@@ -129,26 +129,6 @@ Drag **IP Scanner** from Applications to the Trash, then run `rm -rf ~/IP-Scanne
    device.
 6. **File → Export CSV…** (⌘E / Ctrl+E) saves the list.
 
-### On your phone or another computer
-
-IP Scanner can also be used from a phone, tablet or any browser on the same Wi-Fi. Click
-**📱 Phone** at the top of the window (or **File → Open on Phone or Browser…**) and scan the QR
-code with your phone's camera.
-
-The mobile page has the same light-blue look, with pill navigation between **Devices** (search,
-filters, and tap a device to see its services), **Services** (every open service, grouped) and
-**Settings** (range, ports, PDF report and CSV export). Use the big **Scan** button at the bottom.
-It has its own light/dark switch, and you can add it to your home screen.
-
-- Scans still run on the computer; the phone only shows them. Keep IP Scanner open while you use
-  it, and click **Stop sharing** in the dialog to turn it off.
-- The first time, Windows or macOS may ask whether IP Scanner can accept network connections:
-  click **Allow** (Windows: tick *Private networks*).
-- The link contains a private key, so other people on the network can't use your scanner without
-  it. Only share it with people you trust.
-- On a computer without the window (e.g. a Raspberry Pi), run `python3 web_ui.py`. It prints the
-  link and a QR code in the terminal.
-
 ### Light and dark mode
 
 The window has a light-blue theme and a dark theme. Click **☾ Dark** / **☀ Light** at the top
