@@ -728,6 +728,11 @@ def self_test(report_path: str) -> int:
 
 
 def main() -> None:
+    trace = os.environ.get("IPSCANNER_TRACE")
+    if trace:  # debugging aid: dump every thread's stack every 20 s to this file
+        import faulthandler
+        main._trace_file = open(trace, "w")
+        faulthandler.dump_traceback_later(20, repeat=True, file=main._trace_file)
     if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
         sys.exit(self_test(sys.argv[2]))
     if scanner.IS_WINDOWS:
