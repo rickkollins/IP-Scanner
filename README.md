@@ -220,7 +220,3 @@ python3 scanner.py --pdf report.pdf
 ```bash
 python3 -m unittest discover -s tests
 ```
-
-## Also in this repository: Maker Studio
-
-`luban-clone/` contains **Maker Studio**, a separate browser app for 3D printing, laser and CNC whose pages and dialogs follow Snapmaker Luban's layout. Open `luban-clone/index.html` in a browser. See [luban-clone/README.md](luban-clone/README.md).
