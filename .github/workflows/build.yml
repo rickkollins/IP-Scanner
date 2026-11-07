@@ -51,6 +51,17 @@ jobs:
           test -f "$APP/Contents/Resources/${ICON%.icns}.icns"
           hdiutil verify dist/*.dmg
 
+      - name: Self-test the packaged app
+        run: |
+          set +e
+          "dist/IP Scanner.app/Contents/MacOS/IP Scanner" --self-test "$PWD/self-test.txt" \
+            > launch.log 2>&1
+          code=$?
+          echo "exit code: $code"
+          echo "--- self-test report ---"; cat self-test.txt 2>/dev/null
+          echo "--- output ---"; cat launch.log
+          exit $code
+
       - uses: actions/upload-artifact@v4
         with:
           name: IP-Scanner-dmg
