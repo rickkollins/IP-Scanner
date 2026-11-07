@@ -17,7 +17,8 @@ APP="$DEST/IP Scanner.app"
 mkdir -p "$DEST"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$SRC/scanner.py" "$SRC/ip_scanner_gui.py" "$SRC/report.py" "$SRC/theme.py" "$APP/Contents/Resources/"
+cp "$SRC/scanner.py" "$SRC/ip_scanner_gui.py" "$SRC/report.py" "$SRC/theme.py" \
+   "$SRC/web_ui.py" "$SRC/qr.py" "$APP/Contents/Resources/"
 cp -R "$SRC/data" "$APP/Contents/Resources/"
 cp "$SRC/packaging/icon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
