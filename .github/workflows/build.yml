@@ -59,7 +59,9 @@ jobs:
             "dist/IP Scanner.app/Contents/MacOS/IP Scanner" --self-test "$PWD/self-test.txt" \
             > launch.log 2>&1 &
           pid=$!
+          start=$(date +%s)
           for i in $(seq 1 90); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+          echo "first launch: $(( $(date +%s) - start )) s"
           if kill -0 $pid 2>/dev/null; then
             echo "::error::The app was still running after 90 s: it hangs at launch"
             sample $pid 3 -file sample.txt >/dev/null 2>&1
@@ -73,6 +75,14 @@ jobs:
           echo "exit code: $code"
           echo "--- self-test report ---"; cat self-test.txt 2>/dev/null
           echo "--- output ---"; cat launch.log
+          [ "$code" = 0 ] || exit $code
+          # Second launch: shows how much of the first one was macOS checking
+          # the freshly built app.
+          start=$(date +%s)
+          "dist/IP Scanner.app/Contents/MacOS/IP Scanner" --self-test "$PWD/self-test2.txt"
+          code=$?
+          echo "second launch: $(( $(date +%s) - start )) s, exit $code"
+          cat self-test2.txt
           exit $code
 
       - uses: actions/upload-artifact@v4
