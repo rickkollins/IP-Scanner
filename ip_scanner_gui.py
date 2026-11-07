@@ -24,7 +24,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scanner  # noqa: E402
 import report  # noqa: E402
 import theme  # noqa: E402
-import qr  # noqa: E402
 
 SETTINGS = os.path.expanduser("~/.ip_scanner.json")
 
@@ -101,9 +100,6 @@ class App:
         self.theme_btn = ttk.Button(header, style="Header.TButton",
                                     command=self.toggle_theme)
         self.theme_btn.pack(side="right")
-        ttk.Button(header, text="📱  Phone", style="Header.TButton",
-                   command=self.open_phone).pack(side="right", padx=(0, 8))
-        self.web = None  # the web interface server, started on demand
 
         # Toolbar card: [Scan] range [My network]   [Expand All] [Print]  Search
         card = ttk.Frame(root, style="Card.TFrame", padding=(14, 12))
@@ -212,67 +208,6 @@ class App:
         dark = p["name"] == "dark"
         self.theme_btn.configure(text="☀  Light" if dark else "☾  Dark")
 
-    # ---------------------------------------------------------------- phone
-
-    def open_phone(self) -> None:
-        """Start the web interface and show its link as a QR code."""
-        import web_ui
-        if self.web is None:
-            try:
-                self.web = web_ui.WebServer().start()
-            except OSError as e:
-                messagebox.showerror("IP Scanner", f"Could not start the web interface:\n{e}")
-                return
-        p = self.theme.palette
-        url = self.web.url
-        win = tk.Toplevel(self.root)
-        win.title("Open on phone")
-        win.configure(background=p["bg"])
-        win.resizable(False, False)
-        win.transient(self.root)
-        card = ttk.Frame(win, style="Card.TFrame", padding=(20, 18))
-        card.pack(padx=16, pady=16)
-        ttk.Label(card, text="Open IP Scanner on your phone", style="Card.TLabel",
-                  font=self.theme.fonts["bold"]).pack(anchor="w")
-        ttk.Label(card, text="Scan this code with your phone's camera. Your phone needs to be\n"
-                             "on the same Wi-Fi as this computer.",
-                  style="CardMuted.TLabel").pack(anchor="w", pady=(4, 12))
-        matrix = qr.encode(url, "M")
-        n, scale, quiet = len(matrix), 6, 4
-        size = (n + 2 * quiet) * scale
-        canvas = tk.Canvas(card, width=size, height=size, background="#ffffff",
-                           highlightthickness=0)
-        canvas.pack()
-        for y, row in enumerate(matrix):  # QR codes are always dark on light
-            for x, dark in enumerate(row):
-                if dark:
-                    x0, y0 = (x + quiet) * scale, (y + quiet) * scale
-                    canvas.create_rectangle(x0, y0, x0 + scale, y0 + scale,
-                                            fill="#0b2340", width=0)
-        link = ttk.Entry(card, width=46)
-        link.insert(0, url)
-        link.configure(state="readonly")
-        link.pack(fill="x", pady=(14, 8))
-        buttons = ttk.Frame(card, style="Inner.TFrame")
-        buttons.pack(fill="x")
-        ttk.Button(buttons, text="Copy link", command=lambda: self.copy(url)).pack(side="left")
-        ttk.Button(buttons, text="Open here", style="Accent.TButton",
-                   command=lambda: webbrowser.open(self.web.local_url)).pack(
-            side="left", padx=6)
-
-        def stop():
-            if self.web:
-                self.web.stop()
-                self.web = None
-            win.destroy()
-            self.status.set("Phone access stopped.")
-        ttk.Button(buttons, text="Stop sharing", command=stop).pack(side="right")
-        ttk.Label(card, text="Doesn't load? Allow IP Scanner through the firewall when asked, "
-                             "and check the\nphone isn't on mobile data. The link includes a "
-                             "private key, so only share it with people you trust.",
-                  style="CardMuted.TLabel").pack(anchor="w", pady=(12, 0))
-        self.status.set(f"Phone access on: {url}")
-
     # ---------------------------------------------------------------- menus
 
     def _build_menu(self) -> None:
@@ -285,8 +220,6 @@ class App:
         file.add_command(label="Save as PDF…", command=self.save_pdf)
         file.add_separator()
         file.add_command(label="Print…", accelerator=f"{acc}+P", command=self.print_report)
-        file.add_separator()
-        file.add_command(label="Open on Phone or Browser…", command=self.open_phone)
         if not scanner.IS_MAC:
             file.add_separator()
             file.add_command(label="Quit", command=self.quit)
@@ -675,20 +608,7 @@ class App:
     def quit(self) -> None:
         if self.scanner:
             self.scanner.stop()
-        if self.web:
-            self.web.stop()
         self.root.destroy()
-
-
-class _TimedLines(list):
-    """A list of report lines that prefixes each new line with the elapsed time."""
-
-    def __init__(self, items, t0):
-        super().__init__(items)
-        self.t0 = t0
-
-    def append(self, line):
-        super().append(f"[{time.monotonic() - self.t0:5.1f}s] {line}")
 
 
 def self_test(report_path: str) -> int:
@@ -696,8 +616,6 @@ def self_test(report_path: str) -> int:
     ARP, port checks, vendor list and the PDF report. Used by the build."""
     import traceback
     lines, ok = [f"IP Scanner {scanner.__version__} self-test"], False
-    t0 = time.monotonic()
-    lines = _TimedLines(lines, t0)
     try:
         nets = scanner.detect_local_networks()
         lines.append(f"networks: {[str(n) for n in nets]}")
@@ -719,19 +637,7 @@ def self_test(report_path: str) -> int:
             root.update()
         root.destroy()
         lines.append("window + light/dark themes: ok")
-        import urllib.request
-        import web_ui
-        server = web_ui.WebServer(0, "127.0.0.1", key="selftest").start()
-        try:
-            page = urllib.request.urlopen(server.local_url, timeout=10).read().decode()
-            state = json.loads(urllib.request.urlopen(
-                f"http://127.0.0.1:{server.port}/api/state?t=selftest", timeout=10).read())
-            lines.append(f"web ui: page {len(page)} bytes, version {state['version']}")
-            ok_web = "IP Scanner" in page and state["version"] == scanner.__version__
-        finally:
-            server.stop()
-        ok = (bool(nets) and scanner.ping("127.0.0.1") and vendor == "Apple, Inc."
-              and ok_web)
+        ok = bool(nets) and scanner.ping("127.0.0.1") and vendor == "Apple, Inc."
     except Exception:
         lines.append(traceback.format_exc())
     lines.append(f"result: {'PASS' if ok else 'FAIL'}")
@@ -741,11 +647,6 @@ def self_test(report_path: str) -> int:
 
 
 def main() -> None:
-    trace = os.environ.get("IPSCANNER_TRACE")
-    if trace:  # debugging aid: dump every thread's stack every 20 s to this file
-        import faulthandler
-        main._trace_file = open(trace, "w")
-        faulthandler.dump_traceback_later(20, repeat=True, file=main._trace_file)
     if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
         sys.exit(self_test(sys.argv[2]))
     if scanner.IS_WINDOWS:
@@ -762,14 +663,9 @@ def main() -> None:
     except tk.TclError:
         pass
     App(root)
-    # Bring the window to the front: an app started from Terminal, or the
-    # first time after macOS's security check, otherwise opens behind
-    # other windows.
-    root.deiconify()
     root.lift()
     root.attributes("-topmost", True)
-    root.focus_force()
-    root.after(600, lambda: root.attributes("-topmost", False))
+    root.after(300, lambda: root.attributes("-topmost", False))
     root.mainloop()
 
 

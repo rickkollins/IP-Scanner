@@ -16,9 +16,8 @@ a = Analysis(
     [os.path.join(ROOT, "ip_scanner_gui.py")],
     pathex=[ROOT],
     datas=[(os.path.join(ROOT, "data", "oui.txt.gz"), "data"),
-           (os.path.join(ROOT, "data", "icon.png"), "data"),
-           (os.path.join(ROOT, "data", "web", "index.html"), os.path.join("data", "web"))],
-    hiddenimports=["scanner", "report", "theme", "qr", "web_ui"],
+           (os.path.join(ROOT, "data", "icon.png"), "data")],
+    hiddenimports=["scanner", "report"],
     excludes=["unittest", "pydoc", "test"],
 )
 pyz = PYZ(a.pure)
