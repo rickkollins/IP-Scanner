@@ -680,11 +680,24 @@ class App:
         self.root.destroy()
 
 
+class _TimedLines(list):
+    """A list of report lines that prefixes each new line with the elapsed time."""
+
+    def __init__(self, items, t0):
+        super().__init__(items)
+        self.t0 = t0
+
+    def append(self, line):
+        super().append(f"[{time.monotonic() - self.t0:5.1f}s] {line}")
+
+
 def self_test(report_path: str) -> int:
     """Checks the packaged app without a window: network detection, ping,
     ARP, port checks, vendor list and the PDF report. Used by the build."""
     import traceback
     lines, ok = [f"IP Scanner {scanner.__version__} self-test"], False
+    t0 = time.monotonic()
+    lines = _TimedLines(lines, t0)
     try:
         nets = scanner.detect_local_networks()
         lines.append(f"networks: {[str(n) for n in nets]}")
@@ -728,6 +741,11 @@ def self_test(report_path: str) -> int:
 
 
 def main() -> None:
+    trace = os.environ.get("IPSCANNER_TRACE")
+    if trace:  # debugging aid: dump every thread's stack every 20 s to this file
+        import faulthandler
+        main._trace_file = open(trace, "w")
+        faulthandler.dump_traceback_later(20, repeat=True, file=main._trace_file)
     if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
         sys.exit(self_test(sys.argv[2]))
     if scanner.IS_WINDOWS:
@@ -744,9 +762,14 @@ def main() -> None:
     except tk.TclError:
         pass
     App(root)
+    # Bring the window to the front: an app started from Terminal, or the
+    # first time after macOS's security check, otherwise opens behind
+    # other windows.
+    root.deiconify()
     root.lift()
     root.attributes("-topmost", True)
-    root.after(300, lambda: root.attributes("-topmost", False))
+    root.focus_force()
+    root.after(600, lambda: root.attributes("-topmost", False))
     root.mainloop()
 
 

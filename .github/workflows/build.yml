@@ -51,6 +51,40 @@ jobs:
           test -f "$APP/Contents/Resources/${ICON%.icns}.icns"
           hdiutil verify dist/*.dmg
 
+      - name: Self-test the packaged app
+        timeout-minutes: 5
+        run: |
+          set +e
+          IPSCANNER_TRACE="$PWD/trace.txt" \
+            "dist/IP Scanner.app/Contents/MacOS/IP Scanner" --self-test "$PWD/self-test.txt" \
+            > launch.log 2>&1 &
+          pid=$!
+          start=$(date +%s)
+          for i in $(seq 1 90); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+          echo "first launch: $(( $(date +%s) - start )) s"
+          if kill -0 $pid 2>/dev/null; then
+            echo "::error::The app was still running after 90 s: it hangs at launch"
+            sample $pid 3 -file sample.txt >/dev/null 2>&1
+            kill -9 $pid
+            echo "--- Python stacks ---"; cat trace.txt
+            echo "--- native stack (main thread) ---"; sed -n '1,120p' sample.txt
+            code=1
+          else
+            wait $pid; code=$?
+          fi
+          echo "exit code: $code"
+          echo "--- self-test report ---"; cat self-test.txt 2>/dev/null
+          echo "--- output ---"; cat launch.log
+          [ "$code" = 0 ] || exit $code
+          # Second launch: shows how much of the first one was macOS checking
+          # the freshly built app.
+          start=$(date +%s)
+          "dist/IP Scanner.app/Contents/MacOS/IP Scanner" --self-test "$PWD/self-test2.txt"
+          code=$?
+          echo "second launch: $(( $(date +%s) - start )) s, exit $code"
+          cat self-test2.txt
+          exit $code
+
       - uses: actions/upload-artifact@v4
         with:
           name: IP-Scanner-dmg
@@ -103,8 +137,55 @@ jobs:
             dist/IP-Scanner-Windows-Portable-*.zip
           if-no-files-found: error
 
+  # Opens the DMG on several macOS versions and launches the app normally
+  # (not in self-test mode), to catch an app that starts but never shows.
+  mac-launch:
+    needs: dmg
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: IP-Scanner-dmg
+      - name: Launch from the DMG
+        run: |
+          sw_vers
+          hdiutil attach -nobrowse -mountpoint /tmp/ipscanner IP-Scanner-*.dmg >/dev/null
+          APP="/tmp/ipscanner/IP Scanner.app"
+          "$APP/Contents/MacOS/IP Scanner" --self-test "$PWD/self-test.txt"
+          echo "self-test exit: $?"; cat self-test.txt
+          IPSCANNER_TRACE="$PWD/trace.txt" "$APP/Contents/MacOS/IP Scanner" > app.log 2>&1 &
+          pid=$!
+          sleep 25
+          if kill -0 $pid 2>/dev/null; then
+            echo "App is running after 25 s (pid $pid)"
+          else
+            wait $pid; echo "::error::App exited early with code $?"
+          fi
+          echo "--- windows ---"
+          windows=$(osascript -e "tell application \"System Events\" to get {name, position, size} of every window of (first process whose unix id is $pid)" 2>&1 || true)
+          echo "$windows"
+          screencapture -x screen.png 2>/dev/null || true
+          echo "--- Python stacks after 20 s ---"; cat trace.txt
+          echo "--- app output ---"; cat app.log
+          kill $pid 2>/dev/null || true
+          case "$windows" in
+            "IP Scanner, "*) echo "The IP Scanner window is open." ;;
+            *) echo "::error::No IP Scanner window after 25 s"; exit 1 ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launch-${{ matrix.os }}
+          path: screen.png
+          if-no-files-found: ignore
+
   release:
-    needs: [dmg, windows]
+    needs: [dmg, windows, mac-launch]
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:

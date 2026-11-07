@@ -21,6 +21,7 @@ import json
 import os
 import secrets
 import socket
+import socketserver
 import sys
 import tempfile
 import threading
@@ -310,6 +311,18 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "Not found"}, 404)
 
 
+class _HTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def server_bind(self) -> None:
+        # HTTPServer.server_bind() looks up this computer's network name
+        # (socket.getfqdn), which can hang for 30 s or more on macOS. The name
+        # isn't needed, so skip the lookup.
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name, self.server_port = host, port
+
+
 class WebServer:
     """The web interface, running on a background thread."""
 
@@ -321,7 +334,7 @@ class WebServer:
         last_error: OSError | None = None
         for p in ([port] + list(range(port + 1, port + 20)) if port else [0]):
             try:
-                self.httpd = ThreadingHTTPServer((host, p), handler)
+                self.httpd = _HTTPServer((host, p), handler)
                 break
             except OSError as e:
                 last_error = e
