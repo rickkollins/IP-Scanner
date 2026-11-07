@@ -29,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable
 
-__version__ = "2.3.1"
+__version__ = "2.4.0"
 
 # Port -> service name. These are all checked by default.
 SERVICES: dict[int, str] = {
