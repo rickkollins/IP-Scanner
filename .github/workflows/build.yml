@@ -167,12 +167,16 @@ jobs:
             wait $pid; echo "::error::App exited early with code $?"
           fi
           echo "--- windows ---"
-          osascript -e "tell application \"System Events\" to get {name, position, size} of every window of (first process whose unix id is $pid)" 2>&1 || true
+          windows=$(osascript -e "tell application \"System Events\" to get {name, position, size} of every window of (first process whose unix id is $pid)" 2>&1 || true)
+          echo "$windows"
           screencapture -x screen.png 2>/dev/null || true
           echo "--- Python stacks after 20 s ---"; cat trace.txt
           echo "--- app output ---"; cat app.log
           kill $pid 2>/dev/null || true
-          grep -q "mainloop" trace.txt || { echo "::error::The main thread is not in the Tk event loop"; exit 1; }
+          case "$windows" in
+            "IP Scanner, "*) echo "The IP Scanner window is open." ;;
+            *) echo "::error::No IP Scanner window after 25 s"; exit 1 ;;
+          esac
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -181,7 +185,7 @@ jobs:
           if-no-files-found: ignore
 
   release:
-    needs: [dmg, windows]
+    needs: [dmg, windows, mac-launch]
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:

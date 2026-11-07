@@ -762,9 +762,14 @@ def main() -> None:
     except tk.TclError:
         pass
     App(root)
+    # Bring the window to the front: an app started from Terminal, or the
+    # first time after macOS's security check, otherwise opens behind
+    # other windows.
+    root.deiconify()
     root.lift()
     root.attributes("-topmost", True)
-    root.after(300, lambda: root.attributes("-topmost", False))
+    root.focus_force()
+    root.after(600, lambda: root.attributes("-topmost", False))
     root.mainloop()
 
 
