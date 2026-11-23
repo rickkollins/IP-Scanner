@@ -61,7 +61,7 @@ if sys.platform == "darwin":
             "CFBundleDisplayName": NAME,
             "CFBundleShortVersionString": VERSION,
             "CFBundleVersion": VERSION,
-            "LSMinimumSystemVersion": "11.0",
+            "LSMinimumSystemVersion": "14.0",  # numpy/scipy wheels need macOS 14
             "NSHighResolutionCapable": True,
             "CFBundleDocumentTypes": [{
                 "CFBundleTypeName": "Image",

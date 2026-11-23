@@ -15,8 +15,8 @@ every push that changes `bg-remover/`. Open the run under the repository's
 to `main` with a new version also publishes a `bg-remover-v<version>`
 release.
 
-- **Mac:** `Background-Remover-<version>-arm64.dmg` (Apple silicon) or
-  `-x86_64.dmg` (Intel). Open it and drag the app to Applications. The app
+- **Mac (macOS 14 Sonoma or later):** `Background-Remover-<version>-arm64.dmg`
+  (Apple silicon) or `-x86_64.dmg` (Intel). Open it and drag the app to Applications. The app
   isn't notarized, so the first launch needs System Settings → Privacy &
   Security → **Open Anyway**. You can also drop an image on its Dock icon or
   use Finder's **Open With**.

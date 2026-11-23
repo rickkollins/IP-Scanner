@@ -19,8 +19,12 @@ def sample() -> Image.Image:
 
 class Helpers(unittest.TestCase):
     def test_default_output_path(self):
-        self.assertEqual(bgremove.default_output_path("/a/b/cat.jpg"), "/a/b/cat_nobg.png")
-        self.assertEqual(bgremove.default_output_path("cat.jpg", "/out"), "/out/cat_nobg.png")
+        src = os.path.join(os.path.abspath(os.sep), "a", "b", "cat.jpg")
+        self.assertEqual(bgremove.default_output_path(src),
+                         os.path.join(os.path.dirname(src), "cat_nobg.png"))
+        out = os.path.join(os.path.abspath(os.sep), "out")
+        self.assertEqual(bgremove.default_output_path("cat.jpg", out),
+                         os.path.join(out, "cat_nobg.png"))
 
     def test_crop_to_subject(self):
         img = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
@@ -34,7 +38,8 @@ class Helpers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = bgremove.save_png(Image.new("RGBA", (4, 4)), os.path.join(d, "out"))
             self.assertTrue(path.endswith(".png"))
-            self.assertEqual(Image.open(path).mode, "RGBA")
+            with Image.open(path) as saved:  # closed, so Windows can delete the folder
+                self.assertEqual(saved.mode, "RGBA")
 
     def test_load_image_converts_palette(self):
         with tempfile.TemporaryDirectory() as d:
@@ -57,9 +62,9 @@ class Removal(unittest.TestCase):
             src = os.path.join(d, "in.jpg")
             sample().save(src)
             self.assertEqual(bgremove.main([src, "--crop"]), 0)
-            out = Image.open(os.path.join(d, "in_nobg.png"))
-            self.assertEqual(out.mode, "RGBA")
-            self.assertLess(out.width, 320)
+            with Image.open(os.path.join(d, "in_nobg.png")) as out:
+                self.assertEqual(out.mode, "RGBA")
+                self.assertLess(out.width, 320)
 
 
 if __name__ == "__main__":

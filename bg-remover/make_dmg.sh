@@ -4,7 +4,8 @@
 #   bg-remover/dist/Background-Remover-<version>-<arch>.dmg
 #
 # Run on a Mac:  ./bg-remover/make_dmg.sh
-# Needs Python 3.10+ with Tk 8.6 (the python.org installer works). The app is
+# Needs Python 3.10+ with Tk 8.6 (the python.org installer works). The app
+# runs on macOS 14 or later (numpy/scipy wheels need it). It is
 # built for the Mac it runs on (Apple silicon or Intel): onnxruntime, numba
 # and scipy don't publish universal2 wheels.
 set -euo pipefail
@@ -42,7 +43,11 @@ mkdir -p "$BUILD"
 if [ ! -x "$BUILD/venv/bin/pyinstaller" ]; then
   "$PYTHON" -m venv "$BUILD/venv"
   "$BUILD/venv/bin/pip" install --quiet --upgrade pip
-  "$BUILD/venv/bin/pip" install --quiet -r "$SRC/requirements.txt" pyinstaller
+  # Prebuilt wheels only: the newest numba/llvmlite/onnxruntime have no
+  # Intel Mac wheels, and building them from source fails. pip then picks
+  # the newest versions that do have wheels for this Mac.
+  "$BUILD/venv/bin/pip" install --quiet --only-binary=:all: \
+    -r "$SRC/requirements.txt" pyinstaller
 fi
 
 rm -rf "$BUILD/pyinstaller" "$DIST/$NAME.app" "$DIST/$NAME"

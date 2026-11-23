@@ -8,7 +8,7 @@ $version = (Select-String -Path bgremove.py -Pattern '__version__ = "(.+)"').Mat
 if (-not (Test-Path build\venv\Scripts\pyinstaller.exe)) {
     python -m venv build\venv
     build\venv\Scripts\python -m pip install --quiet --upgrade pip
-    build\venv\Scripts\python -m pip install --quiet -r requirements.txt pyinstaller
+    build\venv\Scripts\python -m pip install --quiet --only-binary=:all: -r requirements.txt pyinstaller
 }
 build\venv\Scripts\pyinstaller --noconfirm --log-level WARN `
     --workpath build\pyinstaller --distpath dist packaging\bg_remover.spec
