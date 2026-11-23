@@ -1,0 +1,152 @@
+# Builds Background Remover for macOS (Apple silicon and Intel) and Windows
+# on GitHub-hosted machines, and runs the packaged app's self-test (it
+# downloads the small u2netp model and removes a background).
+# - Pushes that touch bg-remover/: the DMGs, the Windows installer and a
+#   portable .zip are attached to the run as artifacts.
+# - Pushes to main: if there is no release yet for the version in
+#   bg-remover/bgremove.py (__version__), one is created with tag
+#   bg-remover-v<version>. It is not marked "latest", so IP Scanner's
+#   releases stay the repository's latest release.
+name: Background Remover
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "bg-remover/**"
+      - "theme.py"
+      - ".github/workflows/bg-remover.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed to publish releases
+
+jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15        # Apple silicon
+          - runner: macos-15-intel  # Intel
+    runs-on: ${{ matrix.runner }}
+    env:
+      PYTHON_VERSION: "3.12.10"
+    steps:
+      - uses: actions/checkout@v4
+
+      # python.org Python ships Tk 8.6.
+      - name: Install python.org Python
+        run: |
+          curl -fsSLo python.pkg "https://www.python.org/ftp/python/${PYTHON_VERSION}/python-${PYTHON_VERSION}-macos11.pkg"
+          sudo installer -pkg python.pkg -target /
+          echo "PYTHON=/Library/Frameworks/Python.framework/Versions/${PYTHON_VERSION%.*}/bin/python3" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        working-directory: bg-remover
+        run: |
+          $PYTHON -m venv /tmp/testenv
+          /tmp/testenv/bin/pip install --quiet -r requirements.txt
+          /tmp/testenv/bin/python -m unittest discover -s tests -v
+
+      - name: Build DMG
+        run: ./bg-remover/make_dmg.sh
+
+      - name: Check the app
+        run: |
+          APP="bg-remover/dist/Background Remover.app"
+          lipo -archs "$APP/Contents/MacOS/Background Remover"
+          codesign --verify --deep --strict "$APP"
+          ICON=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$APP/Contents/Info.plist")
+          test -f "$APP/Contents/Resources/${ICON%.icns}.icns"
+          "$APP/Contents/MacOS/Background Remover" --self-test "$PWD/self-test.txt" || STATUS=$?
+          cat self-test.txt
+          [ -z "${STATUS:-}" ]
+          hdiutil verify bg-remover/dist/*.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Background-Remover-${{ matrix.runner }}
+          path: bg-remover/dist/*.dmg
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: bg-remover
+    steps:
+      - uses: actions/checkout@v4
+
+      # python.org builds for Windows include Tk 8.6.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip -r requirements.txt pyinstaller
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build app
+        run: pyinstaller --noconfirm --log-level WARN packaging/bg_remover.spec
+
+      - name: Self-test the packaged app
+        run: |
+          $p = Start-Process -FilePath "dist\Background Remover\Background Remover.exe" `
+                 -ArgumentList "--self-test", "$PWD\self-test.txt" -Wait -PassThru
+          Get-Content self-test.txt
+          if ($p.ExitCode -ne 0) { throw "Self-test failed with exit code $($p.ExitCode)" }
+
+      - name: Build installer
+        run: |
+          $version = python -c "import bgremove; print(bgremove.__version__)"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          & $iscc /Qp "/DAppVersion=$version" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          Compress-Archive -Path "dist\Background Remover" -DestinationPath "dist\Background-Remover-Windows-Portable-$version.zip"
+          Get-ChildItem dist -File
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Background-Remover-windows
+          path: |
+            bg-remover/dist/Background-Remover-Setup-*.exe
+            bg-remover/dist/Background-Remover-Windows-Portable-*.zip
+          if-no-files-found: error
+
+  release:
+    needs: [mac, windows]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' bg-remover/bgremove.py)
+          TAG="bg-remover-v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to publish."
+            exit 0
+          fi
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --latest=false \
+            --title "Background Remover $VERSION" \
+            --notes-file - <<NOTES
+          **Mac:** download the DMG for your Mac (**arm64** for Apple silicon M1/M2/M3/M4, **x86_64** for Intel), open it and drag Background Remover to Applications. The first time, macOS blocks the app because it isn't notarized: open System Settings → Privacy & Security and click **Open Anyway**.
+
+          **Windows 10/11:** download **Background-Remover-Setup-$VERSION.exe** and run it (no admin rights needed). If Windows says it protected your PC, click **More info → Run anyway**: the installer isn't code-signed. The portable .zip runs without installing.
+
+          The first time you remove a background, the app downloads the AI model (5–180 MB depending on the model you pick). After that it works offline, and your images never leave your computer.
+          NOTES

@@ -6,6 +6,9 @@ your network and lists each one's **name**, **IP**, **manufacturer**, **MAC addr
 
 The scanning code uses only built-in Python, so there is nothing to `pip install`.
 
+> This repository also contains **[Background Remover](bg-remover/README.md)**, a separate
+> desktop app that cuts the background out of photos and saves transparent PNGs.
+
 ## Install on Windows 10/11
 
 1. Download **IP-Scanner-Setup-x.y.z.exe** from the repo's

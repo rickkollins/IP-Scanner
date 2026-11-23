@@ -6,7 +6,25 @@ U²-Net / IS-Net via onnxruntime) runs locally, so images never leave your compu
 
 It shares the light-blue / dark theme with IP Scanner (`../theme.py`).
 
-## Setup
+## Download
+
+Ready-made apps are built by GitHub Actions
+([.github/workflows/bg-remover.yml](../.github/workflows/bg-remover.yml)) on
+every push that changes `bg-remover/`. Open the run under the repository's
+**Actions → Background Remover** tab and download the artifacts. Each merge
+to `main` with a new version also publishes a `bg-remover-v<version>`
+release.
+
+- **Mac:** `Background-Remover-<version>-arm64.dmg` (Apple silicon) or
+  `-x86_64.dmg` (Intel). Open it and drag the app to Applications. The app
+  isn't notarized, so the first launch needs System Settings → Privacy &
+  Security → **Open Anyway**. You can also drop an image on its Dock icon or
+  use Finder's **Open With**.
+- **Windows 10/11:** `Background-Remover-Setup-<version>.exe` (no admin
+  rights needed; SmartScreen: **More info → Run anyway**), or the portable
+  `.zip`. The installer adds Background Remover to Explorer's **Open with** menu.
+
+## Run from source
 
 Python 3.10+ with Tk (the python.org installers for macOS and Windows include it).
 
@@ -50,6 +68,28 @@ python bgremove.py photo.jpg                       # -> photo_nobg.png
 python bgremove.py *.jpg -o cutouts/ --crop        # batch into a folder
 python bgremove.py portrait.jpg -m u2net_human_seg --refine
 ```
+
+## Build the apps yourself
+
+```bash
+./bg-remover/make_dmg.sh                 # on a Mac -> bg-remover/dist/*.dmg
+```
+
+```powershell
+.\bg-remover\make_installer.ps1          # on Windows, needs Inno Setup 6
+```
+
+Both use [packaging/bg_remover.spec](packaging/bg_remover.spec) (PyInstaller)
+and a private virtual environment under `bg-remover/build/`. The Mac build
+targets the Mac it runs on (onnxruntime, numba and scipy have no universal2
+wheels). The bundles are large (about 250–400 MB) because they include
+onnxruntime, scipy and numba. The AI model isn't bundled: it downloads on
+first use.
+
+To check a packaged build, run `<app executable> --self-test report.txt`.
+It removes the background from a generated picture with and without
+"Refine edges", checks that Tk can draw the preview, writes the report, and
+exits 0 on success. To redraw the icon, run `python packaging/make_icon.py`.
 
 ## Tests
 

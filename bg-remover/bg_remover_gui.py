@@ -20,6 +20,18 @@ from PIL import Image, ImageTk
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(1, os.path.dirname(HERE))  # theme.py lives in the repo root
+FROZEN = getattr(sys, "frozen", False)
+ASSETS = os.path.join(getattr(sys, "_MEIPASS", HERE), "assets")
+for _name in ("stdout", "stderr"):
+    # A windowed Windows build has no console: rembg's download progress
+    # bar would crash writing to None.
+    if getattr(sys, _name) is None:
+        setattr(sys, _name, open(os.devnull, "w"))
+if FROZEN:
+    # pymatting's numba functions cache compiled code next to the package,
+    # which is read-only inside an app bundle.
+    os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(
+        os.path.expanduser("~"), ".cache", "bg-remover", "numba"))
 import bgremove  # noqa: E402
 import theme  # noqa: E402
 
@@ -109,8 +121,13 @@ class App:
         self.busy = False
 
         root.title("Background Remover")
+        try:
+            self.icon = tk.PhotoImage(file=os.path.join(ASSETS, "icon.png"))
+            root.iconphoto(True, self.icon)
+        except tk.TclError:
+            pass
         root.geometry(self.settings.get("geometry", "980x640"))
-        root.minsize(720, 480)
+        root.minsize(640, 480)
         self.theme = theme.Theme(root)
         self.palette = self.theme.apply(self.settings.get("theme", "system"))
 
@@ -149,17 +166,17 @@ class App:
         self.save_btn = ttk.Button(bar, text="Save PNG…", command=self.save)
         self.save_btn.pack(side="left", padx=(8, 0))
 
-        opts = ttk.Frame(bar)
-        opts.pack(side="right")
-        ttk.Label(opts, text="Model").pack(side="left", padx=(0, 6))
+        opts = ttk.Frame(self.root, padding=(18, 10, 18, 0))
+        opts.pack(fill="x")
+        ttk.Label(opts, text="Model").pack(side="left", padx=(2, 6))
         self.model_box = ttk.Combobox(opts, textvariable=self.model_label, state="readonly",
                                       values=list(bgremove.MODELS), width=22)
         self.model_box.pack(side="left")
         ttk.Checkbutton(opts, text="Refine edges", variable=self.refine,
-                        style="Plain.TCheckbutton").pack(side="left", padx=(12, 0))
+                        style="Plain.TCheckbutton").pack(side="left", padx=(16, 0))
         ttk.Checkbutton(opts, text="Crop to subject", variable=self.crop,
                         style="Plain.TCheckbutton", command=self._recrop
-                        ).pack(side="left", padx=(12, 0))
+                        ).pack(side="left", padx=(16, 0))
         self._style_extras()
 
         panes = ttk.Frame(self.root, padding=(18, 12))
@@ -343,11 +360,32 @@ class App:
         self.root.destroy()
 
 
+def self_test(report: str) -> int:
+    """bgremove.self_test plus a check that results can be drawn in a Tk window."""
+    code = bgremove.self_test(report)
+    try:
+        root = tk.Tk()
+        ImageTk.PhotoImage(checkerboard((40, 40), False), master=root)
+        root.destroy()
+        line = "Tk preview: OK"
+    except Exception as exc:  # e.g. PIL's Tk bridge missing from a frozen build
+        line, code = f"Tk preview: FAIL {exc!r}", 1
+    with open(report, "a") as f:
+        f.write(line + "\n")
+    return code
+
+
 def main() -> None:
+    if len(sys.argv) > 2 and sys.argv[1] == "--self-test":
+        sys.exit(self_test(sys.argv[2]))
     root = tk.Tk()
     app = App(root)
     if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
         root.after(50, lambda: app.load(sys.argv[1]))
+    if sys.platform == "darwin":
+        # Images dropped on the Dock icon or opened with "Open With" in Finder.
+        root.createcommand("::tk::mac::OpenDocument",
+                           lambda *paths: paths and app.load(paths[0]))
     root.mainloop()
 
 
