@@ -30,6 +30,7 @@ jobs:
           - runner: macos-15        # Apple silicon
           - runner: macos-15-intel  # Intel
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     env:
       PYTHON_VERSION: "3.12.10"
     steps:
@@ -59,7 +60,22 @@ jobs:
           codesign --verify --deep --strict "$APP"
           ICON=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$APP/Contents/Info.plist")
           test -f "$APP/Contents/Resources/${ICON%.icns}.icns"
-          "$APP/Contents/MacOS/Background Remover" --self-test "$PWD/self-test.txt" || STATUS=$?
+          # Self-test with a 5-minute watchdog: on a hang, show how far it got
+          # and where every thread is stuck, instead of waiting for hours.
+          "$APP/Contents/MacOS/Background Remover" --self-test "$PWD/self-test.txt" &
+          PID=$!
+          for i in $(seq 300); do kill -0 $PID 2>/dev/null || break; sleep 1; done
+          if kill -0 $PID 2>/dev/null; then
+            echo "::error::Self-test still running after 5 minutes"
+            cat self-test.txt || true
+            echo "--- app processes (a second copy means something relaunched it):"
+            ps -axo pid,ppid,etime,command | grep -i "[B]ackground Remover" || true
+            sample $PID 5 -file sample.txt >/dev/null 2>&1 || true
+            head -c 60000 sample.txt || true
+            pkill -P $PID || true; kill -9 $PID || true
+            exit 1
+          fi
+          wait $PID || STATUS=$?
           cat self-test.txt
           [ -z "${STATUS:-}" ]
           hdiutil verify bg-remover/dist/*.dmg

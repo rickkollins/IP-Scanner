@@ -8,6 +8,7 @@ transparent PNG. Shares the light-blue / dark theme with IP Scanner.
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
 import queue
 import sys
@@ -36,6 +37,7 @@ import bgremove  # noqa: E402
 import theme  # noqa: E402
 
 SETTINGS = os.path.expanduser("~/.bg_remover.json")
+PYTHON_FLAGS = {"-c", "-m", "-B", "-s", "-S", "-E", "-I", "-u", "-O", "-OO", "-X", "-W"}
 CHECKER = 10  # checkerboard square size in preview pixels
 
 
@@ -363,6 +365,8 @@ class App:
 def self_test(report: str) -> int:
     """bgremove.self_test plus a check that results can be drawn in a Tk window."""
     code = bgremove.self_test(report)
+    with open(report, "a") as f:
+        f.write("Tk preview...\n")
     try:
         root = tk.Tk()
         ImageTk.PhotoImage(checkerboard((40, 40), False), master=root)
@@ -376,6 +380,16 @@ def self_test(report: str) -> int:
 
 
 def main() -> None:
+    # If a library starts a helper process, a frozen app relaunches itself;
+    # without this the copy would open another window and never exit.
+    multiprocessing.freeze_support()
+    if FROZEN and len(sys.argv) > 1 and sys.argv[1] in PYTHON_FLAGS:
+        # Some library ran sys.executable as if it were Python. In a frozen
+        # app that is this program, so refuse instead of opening a window
+        # that the library would wait on forever.
+        print(f"Background Remover: not a Python interpreter (args {sys.argv[1:]})",
+              file=sys.stderr)
+        sys.exit(1)
     if len(sys.argv) > 2 and sys.argv[1] == "--self-test":
         sys.exit(self_test(sys.argv[2]))
     root = tk.Tk()

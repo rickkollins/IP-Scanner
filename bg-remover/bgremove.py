@@ -100,30 +100,36 @@ def self_test(report: str, model: str = "u2netp") -> int:
     """Remove the background of a generated picture and check the result.
 
     Used by CI to prove a packaged build (rembg + onnxruntime) really works.
-    Writes a short report to the given file; returns 0 on success.
+    Each stage is written to the report as it happens, so if a build hangs
+    the report shows where. Returns 0 on success.
     """
     from PIL import ImageDraw
-    lines = [f"Background Remover {__version__} self-test, model {model}"]
+
+    def log(line: str) -> None:
+        with open(report, "a") as f:
+            f.write(line + "\n")
+
+    open(report, "w").close()
+    log(f"Background Remover {__version__} self-test, model {model}")
     ok = False
     try:
         img = Image.new("RGB", (320, 240), (70, 140, 220))
         ImageDraw.Draw(img).ellipse((100, 50, 220, 190), fill=(230, 60, 40))
+        log("removing background...")
         out = remove_background(img, model)
         corner, centre = out.getpixel((5, 5))[3], out.getpixel((160, 120))[3]
-        lines.append(f"mode={out.mode} size={out.size} corner_alpha={corner} "
-                     f"centre_alpha={centre}")
+        log(f"mode={out.mode} size={out.size} corner_alpha={corner} centre_alpha={centre}")
         ok = out.mode == "RGBA" and corner < 40 and centre > 200
         # "Refine edges" goes through pymatting/numba, which can break when frozen.
+        log("removing background with refined edges...")
         refined = remove_background(img, model, refine_edges=True)
         r_corner, r_centre = refined.getpixel((5, 5))[3], refined.getpixel((160, 120))[3]
-        lines.append(f"refined: corner_alpha={r_corner} centre_alpha={r_centre}")
+        log(f"refined: corner_alpha={r_corner} centre_alpha={r_centre}")
         ok = ok and r_corner < 40 and r_centre > 200
-    except Exception as exc:
+    except Exception:
         import traceback
-        lines.append(traceback.format_exc())
-    lines.append("PASS" if ok else "FAIL")
-    with open(report, "w") as f:
-        f.write("\n".join(lines) + "\n")
+        log(traceback.format_exc())
+    log("PASS" if ok else "FAIL")
     return 0 if ok else 1
 
 
